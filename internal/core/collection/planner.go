@@ -49,7 +49,11 @@ func New(waiter Waiter, now func() time.Time) *Planner {
 }
 
 func (p *Planner) Run(ctx context.Context, caps capability.Set, collectors []collector.Collector, sampleWindow time.Duration) (Result, error) {
-	result := Result{Observations: []signal.Observation{}, Deltas: []signal.Delta{}, Warnings: []Warning{}}
+	result := Result{
+		Observations: []signal.Observation{},
+		Deltas:       []signal.Delta{},
+		Warnings:     []Warning{},
+	}
 	var counters []collector.Collector
 	firstSamples := make(map[string]signal.Observation)
 
@@ -113,7 +117,15 @@ func (p *Planner) Run(ctx context.Context, caps capability.Set, collectors []col
 				continue
 			}
 			delta := b - a
-			result.Deltas = append(result.Deltas, signal.Delta{Key: current.Key, Object: current.Object, Unit: current.Unit, Delta: delta, RatePerSecond: delta / sampleWindow.Seconds(), WindowSeconds: sampleWindow.Seconds(), Exactness: signal.ExactnessSampled})
+			result.Deltas = append(result.Deltas, signal.Delta{
+				Key:           current.Key,
+				Object:        current.Object,
+				Unit:          current.Unit,
+				Delta:         delta,
+				RatePerSecond: delta / sampleWindow.Seconds(),
+				WindowSeconds: sampleWindow.Seconds(),
+				Exactness:     signal.ExactnessSampled,
+			})
 		}
 	}
 

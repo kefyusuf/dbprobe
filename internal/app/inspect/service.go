@@ -26,7 +26,10 @@ type Report struct {
 	Warnings      []collection.Warning    `json:"warnings"`
 }
 
-type Service struct { registry *adapterregistry.Registry; planner *collection.Planner }
+type Service struct {
+	registry *adapterregistry.Registry
+	planner  *collection.Planner
+}
 
 func New(registry *adapterregistry.Registry, planner *collection.Planner) *Service {
 	return &Service{registry: registry, planner: planner}
@@ -34,32 +37,63 @@ func New(registry *adapterregistry.Registry, planner *collection.Planner) *Servi
 
 func (s *Service) Run(ctx context.Context, rawTarget string, sampleWindow time.Duration) (Report, error) {
 	spec, err := adapter.ParseTarget(rawTarget)
-	if err != nil { return Report{}, err }
+	if err != nil {
+		return Report{}, err
+	}
 	selected, err := s.registry.Resolve(spec)
-	if err != nil { return Report{}, err }
+	if err != nil {
+		return Report{}, err
+	}
 	runtime, err := selected.Open(ctx, spec, adapter.OpenOptions{})
-	if err != nil { return Report{}, err }
+	if err != nil {
+		return Report{}, err
+	}
 	defer runtime.Close()
 
 	target := runtime.Target()
 	caps := runtime.Capabilities()
 	security := runtime.SecurityProfile()
 	collected, err := s.planner.Run(ctx, caps, runtime.Collectors(), sampleWindow)
-	if err != nil { return Report{}, err }
+	if err != nil {
+		return Report{}, err
+	}
 
 	findings := []finding.Finding{}
-	analysis := finding.AnalysisContext{Capabilities: caps, Current: collected.Observations, Previous: []signal.Observation{}, Deltas: collected.Deltas}
+	analysis := finding.AnalysisContext{
+		Capabilities: caps,
+		Current:      collected.Observations,
+		Previous:     []signal.Observation{},
+		Deltas:       collected.Deltas,
+	}
 	for _, rule := range runtime.Rules() {
-		if !caps.HasAll(rule.Requires()) { continue }
+		if !caps.HasAll(rule.Requires()) {
+			continue
+		}
 		findings = append(findings, rule.Evaluate(analysis)...)
 	}
 
 	deltas := collected.Deltas
-	if deltas == nil { deltas = []signal.Delta{} }
+	if deltas == nil {
+		deltas = []signal.Delta{}
+	}
 	warnings := collected.Warnings
-	if warnings == nil { warnings = []collection.Warning{} }
+	if warnings == nil {
+		warnings = []collection.Warning{}
+	}
 	observations := collected.Observations
-	if observations == nil { observations = []signal.Observation{} }
+	if observations == nil {
+		observations = []signal.Observation{}
+	}
 
-	return Report{SchemaVersion: SchemaVersion, CollectedAt: time.Now().UTC(), Target: target, Capabilities: caps.List(), Security: security, Observations: observations, Deltas: deltas, Findings: findings, Warnings: warnings}, nil
+	return Report{
+		SchemaVersion: SchemaVersion,
+		CollectedAt:   time.Now().UTC(),
+		Target:        target,
+		Capabilities:  caps.List(),
+		Security:      security,
+		Observations:  observations,
+		Deltas:        deltas,
+		Findings:      findings,
+		Warnings:      warnings,
+	}, nil
 }
