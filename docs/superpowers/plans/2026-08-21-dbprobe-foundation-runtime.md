@@ -2,28 +2,29 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the first working vertical slice of dbprobe: a database-agnostic runtime that resolves an adapter, discovers capabilities, executes snapshot/counter collectors, computes reset-aware deltas, and renders a versioned report through CLI/JSON using a fake adapter.
+**Goal:** Build the first working vertical slice of dbprobe: a database-agnostic runtime that resolves an adapter, discovers capabilities, executes snapshot/counter collectors, computes reset-aware deltas, and renders a versioned report through CLI/JSON using a deterministic fake adapter.
 
-**Architecture:** The implementation preserves the Core/SDK/Adapter boundaries defined by the architecture spec. No real database driver is introduced in this plan. A deterministic fake adapter is the executable proof that adapter contracts, capability filtering, centralized sampling, partial-failure behavior, and machine-readable output work before MySQL is allowed into the codebase.
+**Architecture:** Core operates only on SDK contracts and never imports database drivers. The fake adapter proves adapter resolution, capability filtering, centralized sampling, partial-failure behavior, security metadata, and stable machine output before MySQL is allowed into the repository. The resulting vertical slice must execute as `dbprobe inspect fake://local`.
 
-**Tech Stack:** Go 1.25+, Cobra CLI, Go standard library tests, GitHub Actions. No database driver, SQLite, MCP, LLM, or external plugin mechanism in this plan.
+**Tech Stack:** Go 1.25 baseline, Cobra CLI added only when the CLI task begins, Go standard-library tests, GitHub Actions. No real database driver, SQLite, MCP, LLM, runtime plugin, or daemon mode in this plan.
 
 **Spec:** `docs/superpowers/specs/2026-08-21-dbprobe-v0.1-architecture-design.md`
 
 ## Global Constraints
 
-- Core is database-agnostic; `internal/core` must not import database-engine packages or drivers.
-- SDK packages must not import concrete adapters.
-- Adapters must not import other adapters.
-- Surfaces must not directly depend on concrete adapter packages.
-- Diagnostics are deterministic; no LLM participates in collection or finding generation.
-- Inspection is read-only by contract; fake adapter reports a read-only security profile.
-- Missing capabilities and collector failures must degrade a section, not silently fabricate completeness.
-- Engine-native concepts stay namespaced; portable concepts use `core.*` only when semantics are genuinely portable.
-- JSON output is a versioned machine contract from the first executable slice.
-- Counter timing/delta calculation belongs to core, not individual adapters.
-- SDK is pre-1.0 and may change until the MongoDB abstraction-validation gate is passed.
-- Commits must be small and reviewable; stage only paths owned by the current task.
+- `internal/core` must not import MySQL, PostgreSQL, MongoDB, Cassandra, their drivers, or concrete adapters.
+- `sdk` must not import concrete adapters or `internal/*` packages.
+- One adapter must not import another adapter.
+- `internal/surfaces` must consume the application report only; it must not import concrete adapters.
+- The concrete adapter registry is wired only from the composition root under `cmd/dbprobe`.
+- Findings are deterministic. AI is outside this plan and cannot influence collection or diagnosis.
+- Counter timing and delta/rate calculation belong to core, not to individual adapters.
+- Missing capabilities skip incompatible collectors. Collector failure degrades the report and must not erase successful evidence.
+- Counter reset must never produce a negative rate.
+- JSON schema version for this slice is exactly `dbprobe.inspect/v1alpha1`.
+- SDK is pre-1.0 and remains changeable until the later MongoDB abstraction-validation gate.
+- Every task follows red → green → full-suite → commit.
+- Stage only files named by the current task.
 
 ---
 
@@ -31,33 +32,26 @@
 
 ```text
 dbprobe/
-├── .github/
-│   └── workflows/
-│       └── ci.yml
-├── cmd/
-│   └── dbprobe/
-│       ├── main.go
-│       ├── root.go
-│       └── inspect.go
-├── adapters/
-│   └── fake/
-│       ├── adapter.go
-│       ├── runtime.go
-│       ├── collectors.go
-│       └── adapter_test.go
+├── .github/workflows/ci.yml
+├── cmd/dbprobe/
+│   ├── main.go
+│   ├── root.go
+│   └── inspect.go
+├── adapters/fake/
+│   ├── adapter.go
+│   ├── runtime.go
+│   ├── collectors.go
+│   └── adapter_test.go
 ├── internal/
-│   ├── app/
-│   │   └── inspect/
-│   │       ├── service.go
-│   │       └── service_test.go
-│   ├── core/
-│   │   └── collection/
-│   │       ├── planner.go
-│   │       └── planner_test.go
-│   ├── platform/
-│   │   └── adapterregistry/
-│   │       ├── registry.go
-│   │       └── registry_test.go
+│   ├── app/inspect/
+│   │   ├── service.go
+│   │   └── service_test.go
+│   ├── core/collection/
+│   │   ├── planner.go
+│   │   └── planner_test.go
+│   ├── platform/adapterregistry/
+│   │   ├── registry.go
+│   │   └── registry_test.go
 │   └── surfaces/
 │       ├── json/
 │       │   ├── render.go
@@ -73,21 +67,16 @@ dbprobe/
 │   ├── capability/
 │   │   ├── capability.go
 │   │   └── capability_test.go
-│   ├── collector/
-│   │   └── collector.go
-│   ├── finding/
-│   │   └── finding.go
-│   ├── object/
-│   │   └── ref.go
+│   ├── collector/collector.go
+│   ├── finding/finding.go
+│   ├── object/ref.go
 │   └── signal/
 │       ├── observation.go
 │       ├── delta.go
 │       └── observation_test.go
 ├── test/
-│   ├── architecture/
-│   │   └── dependencies_test.go
-│   └── contract/
-│       └── adapter_contract_test.go
+│   ├── architecture/dependencies_test.go
+│   └── contract/adapter_contract_test.go
 ├── go.mod
 ├── go.sum
 └── Makefile
@@ -95,17 +84,17 @@ dbprobe/
 
 Responsibility rules:
 
-- `sdk/*` defines contracts concrete adapters may consume or implement.
-- `internal/core/*` performs engine-agnostic orchestration/analysis.
-- `internal/platform/*` contains infrastructure wiring such as adapter registration.
-- `internal/app/*` implements use-cases and produces application reports.
-- `internal/surfaces/*` renders reports; it does not inspect databases.
-- `adapters/*` owns engine-specific connectivity and collection.
-- `cmd/dbprobe/*` is the composition root and command parsing only.
+- `sdk/*`: contracts adapters may implement or consume.
+- `internal/core/*`: engine-agnostic runtime logic.
+- `internal/platform/*`: infrastructure wiring with no engine logic.
+- `internal/app/*`: use-cases and stable application reports.
+- `internal/surfaces/*`: presentation only.
+- `adapters/*`: engine-specific behavior.
+- `cmd/dbprobe/*`: composition root and CLI parsing.
 
 ---
 
-### Task 1: Repository engineering foundation and dependency boundary guard
+### Task 1: Go foundation, CI, and architecture import guard
 
 **Files:**
 - Create: `go.mod`
@@ -115,29 +104,27 @@ Responsibility rules:
 
 **Interfaces:**
 - Consumes: none.
-- Produces: module path `github.com/kefyusuf/dbprobe`; CI commands `make fmt-check`, `make vet`, `make test`; architecture import guard used by all later tasks.
+- Produces: Go module `github.com/kefyusuf/dbprobe`, `make ci`, and a dependency-boundary test that later tasks automatically inherit.
 
-- [ ] **Step 1: Initialize the Go module and pin Cobra**
+- [ ] **Step 1: Create the dependency-free module**
 
-Create `go.mod` with:
+Create `go.mod`:
 
 ```go
 module github.com/kefyusuf/dbprobe
 
 go 1.25
-
-require github.com/spf13/cobra v1.10.2
 ```
 
 Run:
 
 ```bash
-go mod tidy
+go test ./...
 ```
 
-Expected: `go.sum` is generated and the command exits `0`.
+Expected: exit `0`; no `go.sum` exists yet because this task intentionally has no external dependency.
 
-- [ ] **Step 2: Add the architecture import test before implementation packages exist**
+- [ ] **Step 2: Write the architecture guard**
 
 Create `test/architecture/dependencies_test.go`:
 
@@ -145,41 +132,49 @@ Create `test/architecture/dependencies_test.go`:
 package architecture_test
 
 import (
-    "go/ast"
     "go/parser"
     "go/token"
     "io/fs"
+    "os"
     "path/filepath"
     "strconv"
     "strings"
     "testing"
 )
 
+type rule struct {
+    root      string
+    forbidden []string
+}
+
 func TestDependencyBoundaries(t *testing.T) {
-    rules := []struct {
-        root      string
-        forbidden []string
-    }{
+    rules := []rule{
         {"../../internal/core", []string{"/adapters/", "go-sql-driver/mysql", "jackc/pgx", "mongo-driver", "gocql"}},
-        {"../../sdk", []string{"/adapters/"}},
+        {"../../sdk", []string{"/adapters/", "/internal/"}},
         {"../../internal/surfaces", []string{"/adapters/"}},
     }
 
-    for _, rule := range rules {
-        err := filepath.WalkDir(rule.root, func(path string, d fs.DirEntry, err error) error {
+    for _, r := range rules {
+        if _, err := os.Stat(r.root); os.IsNotExist(err) {
+            continue
+        }
+        err := filepath.WalkDir(r.root, func(path string, d fs.DirEntry, err error) error {
             if err != nil {
                 return err
             }
             if d.IsDir() || !strings.HasSuffix(path, ".go") {
                 return nil
             }
-            file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
+            f, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
             if err != nil {
                 return err
             }
-            for _, imp := range file.Imports {
-                importPath, _ := strconv.Unquote(imp.Path.Value)
-                for _, forbidden := range rule.forbidden {
+            for _, imp := range f.Imports {
+                importPath, err := strconv.Unquote(imp.Path.Value)
+                if err != nil {
+                    return err
+                }
+                for _, forbidden := range r.forbidden {
                     if strings.Contains(importPath, forbidden) {
                         t.Errorf("%s imports forbidden dependency %q", path, importPath)
                     }
@@ -187,23 +182,27 @@ func TestDependencyBoundaries(t *testing.T) {
             }
             return nil
         })
-        if err != nil && !strings.Contains(err.Error(), "no such file or directory") {
+        if err != nil {
             t.Fatal(err)
         }
     }
 }
-
-var _ ast.Node
 ```
 
-The temporary `ast` reference prevents an unused import if the file is copied exactly; remove both the `go/ast` import and final line if your formatter/compiler reports they are unnecessary before committing.
+Run:
 
-- [ ] **Step 3: Add reproducible local commands**
+```bash
+go test ./test/architecture -v
+```
+
+Expected: PASS.
+
+- [ ] **Step 3: Add repeatable local verification commands**
 
 Create `Makefile`:
 
 ```make
-.PHONY: fmt fmt-check vet test ci
+.PHONY: fmt fmt-check vet test race ci
 
 fmt:
 	gofmt -w $$(find . -name '*.go' -not -path './vendor/*')
@@ -217,10 +216,11 @@ vet:
 test:
 	go test ./...
 
+race:
+	go test -race ./...
+
 ci: fmt-check vet test
 ```
-
-- [ ] **Step 4: Add GitHub Actions CI**
 
 Create `.github/workflows/ci.yml`:
 
@@ -247,26 +247,24 @@ jobs:
       - run: make ci
 ```
 
-- [ ] **Step 5: Verify the foundation**
-
 Run:
 
 ```bash
 make ci
 ```
 
-Expected: all commands exit `0`; `go test ./...` includes `test/architecture`.
+Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
-git add go.mod go.sum Makefile .github/workflows/ci.yml test/architecture/dependencies_test.go
+git add go.mod Makefile .github/workflows/ci.yml test/architecture/dependencies_test.go
 git commit -m "chore: establish Go project and architecture guard"
 ```
 
 ---
 
-### Task 2: Capability, object, and signal primitives
+### Task 2: Capability, object, observation, and delta primitives
 
 **Files:**
 - Create: `sdk/capability/capability.go`
@@ -277,10 +275,9 @@ git commit -m "chore: establish Go project and architecture guard"
 - Create: `sdk/signal/observation_test.go`
 
 **Interfaces:**
-- Consumes: standard library only.
-- Produces: `capability.Capability`, `capability.Set`, `object.Ref`, `signal.Observation`, `signal.Delta`, exactness/unit/sensitivity enums, numeric observation helpers.
+- Produces: `capability.Capability`, `capability.Set`, `object.Ref`, `signal.Observation`, `signal.Delta`.
 
-- [ ] **Step 1: Write failing capability-set tests**
+- [ ] **Step 1: Write the capability-set test**
 
 Create `sdk/capability/capability_test.go`:
 
@@ -294,13 +291,11 @@ import (
     "github.com/kefyusuf/dbprobe/sdk/capability"
 )
 
-func TestSetHasAndListIsStable(t *testing.T) {
+func TestSetHasAndListsUniqueValuesInStableOrder(t *testing.T) {
     set := capability.New("storage.cache", "activity.sessions", "storage.cache")
-
     if !set.Has("activity.sessions") {
-        t.Fatal("expected activity.sessions capability")
+        t.Fatal("expected activity.sessions")
     }
-
     want := []capability.Capability{"activity.sessions", "storage.cache"}
     if got := set.List(); !reflect.DeepEqual(got, want) {
         t.Fatalf("List() = %#v, want %#v", got, want)
@@ -311,12 +306,12 @@ func TestSetHasAndListIsStable(t *testing.T) {
 Run:
 
 ```bash
-go test ./sdk/capability -run TestSetHasAndListIsStable -v
+go test ./sdk/capability -v
 ```
 
-Expected: FAIL because package/types do not exist.
+Expected: FAIL because package implementation does not exist.
 
-- [ ] **Step 2: Implement the capability set**
+- [ ] **Step 2: Implement capability set**
 
 Create `sdk/capability/capability.go`:
 
@@ -327,16 +322,14 @@ import "sort"
 
 type Capability string
 
-type Set struct {
-    values map[Capability]struct{}
-}
+type Set struct{ values map[Capability]struct{} }
 
 func New(values ...Capability) Set {
-    out := Set{values: make(map[Capability]struct{}, len(values))}
+    set := Set{values: make(map[Capability]struct{}, len(values))}
     for _, value := range values {
-        out.values[value] = struct{}{}
+        set.values[value] = struct{}{}
     }
-    return out
+    return set
 }
 
 func (s Set) Has(value Capability) bool {
@@ -363,9 +356,9 @@ func (s Set) List() []Capability {
 }
 ```
 
-Run the capability test again. Expected: PASS.
+Run `go test ./sdk/capability -v`. Expected: PASS.
 
-- [ ] **Step 3: Write failing observation tests**
+- [ ] **Step 3: Write the observation test**
 
 Create `sdk/signal/observation_test.go`:
 
@@ -380,7 +373,7 @@ import (
     "github.com/kefyusuf/dbprobe/sdk/signal"
 )
 
-func TestNumberObservationRoundTrip(t *testing.T) {
+func TestNumberObservationExposesNumericValue(t *testing.T) {
     at := time.Date(2026, 8, 21, 0, 0, 0, 0, time.UTC)
     obs := signal.NumberObservation(
         "core.connections.used",
@@ -391,7 +384,6 @@ func TestNumberObservationRoundTrip(t *testing.T) {
         signal.SensitivityMetadata,
         at,
     )
-
     got, ok := obs.Numeric()
     if !ok || got != 12 {
         t.Fatalf("Numeric() = %v, %v; want 12, true", got, ok)
@@ -399,15 +391,9 @@ func TestNumberObservationRoundTrip(t *testing.T) {
 }
 ```
 
-Run:
+Run `go test ./sdk/signal -v`. Expected: FAIL.
 
-```bash
-go test ./sdk/signal -run TestNumberObservationRoundTrip -v
-```
-
-Expected: FAIL because signal/object types do not exist.
-
-- [ ] **Step 4: Implement object identity and observation contracts**
+- [ ] **Step 4: Implement object and signal contracts**
 
 Create `sdk/object/ref.go`:
 
@@ -420,14 +406,13 @@ type Ref struct {
 }
 ```
 
-Create `sdk/signal/observation.go` with these public contracts:
+Create `sdk/signal/observation.go`:
 
 ```go
 package signal
 
 import (
     "time"
-
     "github.com/kefyusuf/dbprobe/sdk/object"
 )
 
@@ -437,36 +422,36 @@ type Exactness string
 type Sensitivity string
 
 const (
-    UnitCount        Unit = "count"
+    UnitCount Unit = "count"
     UnitMilliseconds Unit = "milliseconds"
-    UnitBytes        Unit = "bytes"
-    UnitRatio        Unit = "ratio"
-    UnitSeconds      Unit = "seconds"
+    UnitBytes Unit = "bytes"
+    UnitRatio Unit = "ratio"
+    UnitSeconds Unit = "seconds"
 
-    ExactnessScraped    Exactness = "scraped"
+    ExactnessScraped Exactness = "scraped"
     ExactnessCumulative Exactness = "cumulative"
-    ExactnessSampled    Exactness = "sampled"
-    ExactnessEstimated  Exactness = "estimated"
+    ExactnessSampled Exactness = "sampled"
+    ExactnessEstimated Exactness = "estimated"
     ExactnessUnavailable Exactness = "unavailable"
-    ExactnessReset      Exactness = "reset"
+    ExactnessReset Exactness = "reset"
 
-    SensitivityMetadata   Sensitivity = "metadata"
+    SensitivityMetadata Sensitivity = "metadata"
     SensitivityQueryShape Sensitivity = "query_shape"
-    SensitivityQueryText  Sensitivity = "query_text"
+    SensitivityQueryText Sensitivity = "query_text"
 )
 
 type Observation struct {
-    Key         Key                 `json:"key"`
-    Object      object.Ref          `json:"object"`
-    Unit        Unit                `json:"unit"`
-    Exactness   Exactness           `json:"exactness"`
-    Number      *float64            `json:"number,omitempty"`
-    Text        *string             `json:"text,omitempty"`
-    Boolean     *bool               `json:"boolean,omitempty"`
-    CollectedAt time.Time           `json:"collected_at"`
-    Sensitivity Sensitivity         `json:"sensitivity"`
-    Source      string              `json:"source,omitempty"`
-    Reason      string              `json:"reason,omitempty"`
+    Key Key `json:"key"`
+    Object object.Ref `json:"object"`
+    Unit Unit `json:"unit"`
+    Exactness Exactness `json:"exactness"`
+    Number *float64 `json:"number,omitempty"`
+    Text *string `json:"text,omitempty"`
+    Boolean *bool `json:"boolean,omitempty"`
+    CollectedAt time.Time `json:"collected_at"`
+    Sensitivity Sensitivity `json:"sensitivity"`
+    Source string `json:"source,omitempty"`
+    Reason string `json:"reason,omitempty"`
 }
 
 func NumberObservation(key Key, ref object.Ref, value float64, unit Unit, exactness Exactness, sensitivity Sensitivity, at time.Time) Observation {
@@ -486,21 +471,16 @@ Create `sdk/signal/delta.go`:
 ```go
 package signal
 
-import (
-    "time"
-
-    "github.com/kefyusuf/dbprobe/sdk/object"
-)
+import "github.com/kefyusuf/dbprobe/sdk/object"
 
 type Delta struct {
-    Key           Key        `json:"key"`
-    Object        object.Ref `json:"object"`
-    Unit          Unit       `json:"unit"`
-    Delta         float64    `json:"delta"`
-    RatePerSecond float64    `json:"rate_per_second"`
-    Window        time.Duration `json:"-"`
-    WindowSeconds float64    `json:"window_seconds"`
-    Exactness     Exactness  `json:"exactness"`
+    Key Key `json:"key"`
+    Object object.Ref `json:"object"`
+    Unit Unit `json:"unit"`
+    Delta float64 `json:"delta"`
+    RatePerSecond float64 `json:"rate_per_second"`
+    WindowSeconds float64 `json:"window_seconds"`
+    Exactness Exactness `json:"exactness"`
 }
 ```
 
@@ -521,7 +501,7 @@ git commit -m "feat: define capability and signal primitives"
 
 ---
 
-### Task 3: Adapter/runtime contracts and compile-time registry
+### Task 3: Collector, finding, adapter/runtime contracts and registry
 
 **Files:**
 - Create: `sdk/collector/collector.go`
@@ -533,10 +513,9 @@ git commit -m "feat: define capability and signal primitives"
 - Create: `internal/platform/adapterregistry/registry_test.go`
 
 **Interfaces:**
-- Consumes: Task 2 primitives.
-- Produces: `adapter.Adapter`, `adapter.Runtime`, `adapter.ParseTarget`, `collector.Collector`, `finding.Rule`, `adapterregistry.Registry.Resolve`.
+- Produces: `collector.Collector`, `finding.Rule`, `adapter.Adapter`, `adapter.Runtime`, `adapter.ParseTarget`, `adapterregistry.Registry`.
 
-- [ ] **Step 1: Define collector and finding contracts**
+- [ ] **Step 1: Add collector and finding contracts**
 
 Create `sdk/collector/collector.go`:
 
@@ -546,7 +525,6 @@ package collector
 import (
     "context"
     "time"
-
     "github.com/kefyusuf/dbprobe/sdk/capability"
     "github.com/kefyusuf/dbprobe/sdk/signal"
 )
@@ -556,22 +534,21 @@ type Phase string
 
 const (
     StrategySnapshot Strategy = "snapshot"
-    StrategyCounter  Strategy = "counter"
-
-    PhaseSingle  Phase = "single"
+    StrategyCounter Strategy = "counter"
+    PhaseSingle Phase = "single"
     PhaseSampleA Phase = "sample_a"
     PhaseSampleB Phase = "sample_b"
 )
 
 type Descriptor struct {
-    ID       string
+    ID string
     Requires []capability.Capability
     Produces []signal.Key
     Strategy Strategy
 }
 
 type Request struct {
-    Phase       Phase
+    Phase Phase
     CollectedAt time.Time
 }
 
@@ -596,21 +573,21 @@ type ID string
 type Severity string
 
 type Finding struct {
-    ID         ID                   `json:"id"`
-    Title      string               `json:"title"`
-    Severity   Severity             `json:"severity"`
-    Object     object.Ref           `json:"object"`
-    Evidence   []signal.Observation `json:"evidence,omitempty"`
-    Summary    string               `json:"summary"`
-    Guidance   string               `json:"guidance,omitempty"`
-    Confidence float64              `json:"confidence"`
+    ID ID `json:"id"`
+    Title string `json:"title"`
+    Severity Severity `json:"severity"`
+    Object object.Ref `json:"object"`
+    Evidence []signal.Observation `json:"evidence,omitempty"`
+    Summary string `json:"summary"`
+    Guidance string `json:"guidance,omitempty"`
+    Confidence float64 `json:"confidence"`
 }
 
 type AnalysisContext struct {
     Capabilities capability.Set
-    Current      []signal.Observation
-    Previous     []signal.Observation
-    Deltas       []signal.Delta
+    Current []signal.Observation
+    Previous []signal.Observation
+    Deltas []signal.Delta
 }
 
 type Rule interface {
@@ -620,9 +597,9 @@ type Rule interface {
 }
 ```
 
-- [ ] **Step 2: Define target, security, adapter, and runtime contracts**
+- [ ] **Step 2: Add adapter contracts**
 
-Create `sdk/adapter/target.go` with `TargetSpec`, `TargetMetadata`, and parser:
+Create `sdk/adapter/target.go`:
 
 ```go
 package adapter
@@ -632,14 +609,11 @@ import (
     "net/url"
 )
 
-type TargetSpec struct {
-    RawURL string
-    Scheme string
-}
+type TargetSpec struct { RawURL, Scheme string }
 
 type TargetMetadata struct {
-    Engine      string `json:"engine"`
-    AdapterID   string `json:"adapter_id"`
+    Engine string `json:"engine"`
+    AdapterID string `json:"adapter_id"`
     Fingerprint string `json:"fingerprint"`
     DisplayName string `json:"display_name"`
 }
@@ -659,16 +633,16 @@ Create `sdk/adapter/security.go`:
 package adapter
 
 type Privilege struct {
-    Name   string `json:"name"`
-    Scope  string `json:"scope,omitempty"`
+    Name string `json:"name"`
+    Scope string `json:"scope,omitempty"`
     Reason string `json:"reason,omitempty"`
 }
 
 type SecurityProfile struct {
-    ReadOnlyGuaranteed bool        `json:"read_only_guaranteed"`
-    Required           []Privilege `json:"required,omitempty"`
-    Recommended        []Privilege `json:"recommended,omitempty"`
-    Missing            []Privilege `json:"missing,omitempty"`
+    ReadOnlyGuaranteed bool `json:"read_only_guaranteed"`
+    Required []Privilege `json:"required,omitempty"`
+    Recommended []Privilege `json:"recommended,omitempty"`
+    Missing []Privilege `json:"missing,omitempty"`
 }
 ```
 
@@ -679,7 +653,6 @@ package adapter
 
 import (
     "context"
-
     "github.com/kefyusuf/dbprobe/sdk/capability"
     "github.com/kefyusuf/dbprobe/sdk/collector"
     "github.com/kefyusuf/dbprobe/sdk/finding"
@@ -687,13 +660,7 @@ import (
 
 const ContractVersion = "v0.1"
 
-type Metadata struct {
-    ID              string
-    Name            string
-    Version         string
-    ContractVersion string
-}
-
+type Metadata struct { ID, Name, Version, ContractVersion string }
 type OpenOptions struct{}
 
 type Adapter interface {
@@ -712,17 +679,59 @@ type Runtime interface {
 }
 ```
 
-- [ ] **Step 3: Write failing registry tests**
+- [ ] **Step 3: Write registry tests with concrete test doubles**
 
-Create `internal/platform/adapterregistry/registry_test.go` with a minimal stub adapter and verify:
+Create `internal/platform/adapterregistry/registry_test.go`:
 
 ```go
-func TestResolveReturnsMatchingAdapter(t *testing.T) { /* fake mysql:// matcher, expect returned metadata ID */ }
-func TestResolveFailsWhenNoAdapterMatches(t *testing.T) { /* redis:// target, expect error */ }
-func TestNewRejectsDuplicateAdapterIDs(t *testing.T) { /* two adapters with ID x, expect error */ }
-```
+package adapterregistry_test
 
-Use real test doubles implementing the exact `adapter.Adapter` interface; do not weaken the interface for tests.
+import (
+    "context"
+    "testing"
+
+    "github.com/kefyusuf/dbprobe/internal/platform/adapterregistry"
+    "github.com/kefyusuf/dbprobe/sdk/adapter"
+)
+
+type stubAdapter struct{ id, scheme, contract string }
+
+func (s stubAdapter) Metadata() adapter.Metadata {
+    return adapter.Metadata{ID: s.id, Name: s.id, Version: "test", ContractVersion: s.contract}
+}
+func (s stubAdapter) Match(spec adapter.TargetSpec) bool { return spec.Scheme == s.scheme }
+func (s stubAdapter) Open(context.Context, adapter.TargetSpec, adapter.OpenOptions) (adapter.Runtime, error) { return nil, nil }
+
+func TestResolveReturnsMatchingAdapter(t *testing.T) {
+    r, err := adapterregistry.New(stubAdapter{"fake", "fake", adapter.ContractVersion})
+    if err != nil { t.Fatal(err) }
+    spec, err := adapter.ParseTarget("fake://local")
+    if err != nil { t.Fatal(err) }
+    got, err := r.Resolve(spec)
+    if err != nil { t.Fatal(err) }
+    if got.Metadata().ID != "fake" { t.Fatalf("got %q", got.Metadata().ID) }
+}
+
+func TestResolveFailsWhenNoAdapterMatches(t *testing.T) {
+    r, err := adapterregistry.New(stubAdapter{"fake", "fake", adapter.ContractVersion})
+    if err != nil { t.Fatal(err) }
+    spec, _ := adapter.ParseTarget("redis://local")
+    if _, err := r.Resolve(spec); err == nil { t.Fatal("expected no-match error") }
+}
+
+func TestNewRejectsDuplicateIDs(t *testing.T) {
+    _, err := adapterregistry.New(
+        stubAdapter{"same", "a", adapter.ContractVersion},
+        stubAdapter{"same", "b", adapter.ContractVersion},
+    )
+    if err == nil { t.Fatal("expected duplicate-ID error") }
+}
+
+func TestNewRejectsContractMismatch(t *testing.T) {
+    _, err := adapterregistry.New(stubAdapter{"fake", "fake", "v999"})
+    if err == nil { t.Fatal("expected contract-version error") }
+}
+```
 
 Run:
 
@@ -730,30 +739,25 @@ Run:
 go test ./internal/platform/adapterregistry -v
 ```
 
-Expected: FAIL because registry is missing.
+Expected: FAIL.
 
 - [ ] **Step 4: Implement registry**
 
-Create `internal/platform/adapterregistry/registry.go` exposing:
+Create `internal/platform/adapterregistry/registry.go` with exactly these exported methods:
 
 ```go
 type Registry struct { adapters []adapter.Adapter }
-
 func New(adapters ...adapter.Adapter) (*Registry, error)
 func (r *Registry) Resolve(spec adapter.TargetSpec) (adapter.Adapter, error)
 ```
 
-Rules:
-
-- adapter IDs must be non-empty and unique;
-- adapters with a `ContractVersion` different from `adapter.ContractVersion` are rejected;
-- `Resolve` returns the first matching adapter;
-- no match returns an error containing the target scheme but never credentials/raw URL.
+`New` validates non-empty unique adapter IDs and exact `adapter.ContractVersion`. `Resolve` returns the first matcher. Errors may contain adapter ID and target scheme, but never `TargetSpec.RawURL`.
 
 Run:
 
 ```bash
 go test ./internal/platform/adapterregistry -v
+go test ./...
 ```
 
 Expected: PASS.
@@ -767,90 +771,113 @@ git commit -m "feat: define adapter runtime contract and registry"
 
 ---
 
-### Task 4: Capability-aware collection planner with centralized counter sampling
+### Task 4: Capability-aware collection planner and reset-safe deltas
 
 **Files:**
 - Create: `internal/core/collection/planner.go`
 - Create: `internal/core/collection/planner_test.go`
 
 **Interfaces:**
-- Consumes: `capability.Set`, `collector.Collector`, `signal.Observation`, `signal.Delta`.
-- Produces: `collection.Planner.Run(ctx, capabilities, collectors, sampleWindow) collection.Result`.
+- Produces: `collection.New`, `collection.RealWaiter`, `Planner.Run`, `collection.Result`, `collection.Warning`.
 
-- [ ] **Step 1: Write failing planner tests**
+- [ ] **Step 1: Write four planner tests**
 
-The tests must cover four behaviors with explicit fake collectors:
+Create test collectors in `planner_test.go` that implement the SDK collector interface and cover:
 
 ```go
-func TestPlannerSkipsCollectorWithMissingCapability(t *testing.T)
-func TestPlannerKeepsSuccessfulCollectorsWhenOneFails(t *testing.T)
+func TestPlannerSkipsCollectorMissingCapability(t *testing.T)
+func TestPlannerPreservesSuccessfulEvidenceWhenCollectorFails(t *testing.T)
 func TestPlannerSamplesCounterTwiceAndComputesRate(t *testing.T)
-func TestPlannerMarksCounterResetInsteadOfProducingNegativeDelta(t *testing.T)
+func TestPlannerTreatsCounterDecreaseAsReset(t *testing.T)
 ```
 
-For the rate test, sample A returns `100`, sample B returns `140`, sample window is `10s`; expect delta `40` and rate `4` per second.
-
-For the reset test, sample A returns `100`, sample B returns `5`; expect no negative rate and one warning/reset marker with `ExactnessReset`.
-
-Run:
-
-```bash
-go test ./internal/core/collection -v
-```
-
-Expected: FAIL because planner does not exist.
-
-- [ ] **Step 2: Implement deterministic planner contracts**
-
-Create `internal/core/collection/planner.go` around:
+Use a `noopWaiter`:
 
 ```go
+type noopWaiter struct{}
+func (noopWaiter) Wait(context.Context, time.Duration) error { return nil }
+```
+
+For the rate test, sample A must return `100`, sample B `140`, window `10*time.Second`; assert delta `40` and rate `4`.
+
+For reset, sample A `100`, sample B `5`; assert no negative delta is emitted and a warning identifies the reset.
+
+Run `go test ./internal/core/collection -v`. Expected: FAIL.
+
+- [ ] **Step 2: Implement planner public contract**
+
+Create `internal/core/collection/planner.go`:
+
+```go
+package collection
+
+import (
+    "context"
+    "fmt"
+    "sort"
+    "time"
+
+    "github.com/kefyusuf/dbprobe/sdk/capability"
+    "github.com/kefyusuf/dbprobe/sdk/collector"
+    "github.com/kefyusuf/dbprobe/sdk/signal"
+)
+
 type Warning struct {
     CollectorID string `json:"collector_id"`
-    Reason      string `json:"reason"`
+    Reason string `json:"reason"`
 }
 
 type Result struct {
     Observations []signal.Observation `json:"observations"`
-    Deltas       []signal.Delta       `json:"deltas,omitempty"`
-    Warnings     []Warning            `json:"warnings,omitempty"`
+    Deltas []signal.Delta `json:"deltas,omitempty"`
+    Warnings []Warning `json:"warnings,omitempty"`
 }
 
-type Waiter interface {
-    Wait(context.Context, time.Duration) error
+type Waiter interface { Wait(context.Context, time.Duration) error }
+
+type RealWaiter struct{}
+func (RealWaiter) Wait(ctx context.Context, d time.Duration) error {
+    timer := time.NewTimer(d)
+    defer timer.Stop()
+    select {
+    case <-ctx.Done(): return ctx.Err()
+    case <-timer.C: return nil
+    }
 }
 
-type Planner struct {
-    waiter Waiter
-    now    func() time.Time
-}
-
-func New(waiter Waiter, now func() time.Time) *Planner
-func (p *Planner) Run(ctx context.Context, caps capability.Set, collectors []collector.Collector, sampleWindow time.Duration) Result
+type Planner struct { waiter Waiter; now func() time.Time }
+func New(waiter Waiter, now func() time.Time) *Planner { return &Planner{waiter: waiter, now: now} }
 ```
 
-Implementation rules:
+Implement `Run` with this algorithm:
 
-1. unsupported collectors are skipped without invoking them;
-2. snapshot collectors run once with `PhaseSingle`;
-3. counter collectors run once with `PhaseSampleA`;
-4. planner waits exactly `sampleWindow` once when at least one counter collector exists;
-5. counter collectors run again with `PhaseSampleB`;
-6. only matching numeric `(signal key, object kind, object ID)` values are delta-calculated;
-7. B < A is treated as reset, never a negative rate;
-8. collector errors append warnings and preserve successful results from other collectors;
-9. returned observation/delta ordering is stable: collector order, then observation key/object order.
+```text
+eligible = collectors whose Requires are all present
+snapshot collectors: collect PhaseSingle once
+counter collectors: collect PhaseSampleA
+if counters exist: waiter.Wait(sampleWindow)
+counter collectors: collect PhaseSampleB
+append B observations as current observations
+match numeric A/B by key + object.kind + object.id
+if B >= A: emit sampled Delta with (B-A)/windowSeconds
+if B < A: emit reset warning and no numeric delta
+collector error: append warning and continue other collectors
+sort observations/deltas deterministically before returning
+```
 
-Provide a real waiter implementation in the same file:
+The helper key for A/B matching is:
 
 ```go
-type RealWaiter struct{}
-func (RealWaiter) Wait(ctx context.Context, d time.Duration) error
+func identity(o signal.Observation) string {
+    return fmt.Sprintf("%s|%s|%s", o.Key, o.Object.Kind, o.Object.ID)
+}
 ```
 
-Use a timer/select so context cancellation aborts the wait.
+Stable sort key is the same identity string.
 
-- [ ] **Step 3: Run focused tests and full suite**
+- [ ] **Step 3: Verify planner**
+
+Run:
 
 ```bash
 go test ./internal/core/collection -v
@@ -868,7 +895,7 @@ git commit -m "feat: add capability-aware collection planner"
 
 ---
 
-### Task 5: Fake adapter and reusable adapter contract tests
+### Task 5: Fake adapter and reusable adapter contract suite
 
 **Files:**
 - Create: `adapters/fake/adapter.go`
@@ -878,67 +905,91 @@ git commit -m "feat: add capability-aware collection planner"
 - Create: `test/contract/adapter_contract_test.go`
 
 **Interfaces:**
-- Consumes: Tasks 2-4 contracts.
-- Produces: `fake.New() adapter.Adapter`; stable target `fake://local`; deterministic snapshot/counter collectors used by e2e tests.
+- Produces: `fake.New() adapter.Adapter`; deterministic target `fake://local`.
 
-- [ ] **Step 1: Write fake-adapter contract expectations**
+- [ ] **Step 1: Write fake adapter tests**
 
-In `adapters/fake/adapter_test.go`, verify:
+Tests must assert these exact values:
 
-- metadata ID is `fake`;
-- contract version equals `adapter.ContractVersion`;
-- `Match` accepts `fake://local` and rejects `mysql://local`;
-- runtime target engine is `fake`;
-- runtime fingerprint is stable across two opens of the same target;
-- security profile reports `ReadOnlyGuaranteed=true`;
-- capabilities include `activity.sessions` and `workload.query_summary`.
-
-Run:
-
-```bash
-go test ./adapters/fake -v
+```text
+adapter ID: fake
+adapter contract: v0.1
+engine: fake
+fingerprint: stable for fake://local
+capabilities: activity.sessions, workload.query_summary
+security.read_only_guaranteed: true
+collector IDs: fake.health, fake.workload
 ```
 
-Expected: FAIL.
+Run `go test ./adapters/fake -v`. Expected: FAIL.
 
-- [ ] **Step 2: Implement fake adapter**
+- [ ] **Step 2: Implement fake adapter/runtime**
 
-`fake.New()` returns a stateless adapter. `Open` returns a runtime whose fingerprint is `sha256("fake|local")` truncated to 16 hex characters.
+`fake.New()` returns a stateless adapter matching only scheme `fake`.
 
-The runtime exposes two collectors:
+Target fingerprint implementation:
 
-1. `fake.health` (`StrategySnapshot`) producing:
-   - `core.connections.used = 12 count`
-   - `core.connections.limit = 100 count`
-2. `fake.workload` (`StrategyCounter`) producing `core.query.calls`:
-   - first invocation: `100`
-   - second invocation: `140`
+```go
+sum := sha256.Sum256([]byte("fake|local"))
+fingerprint := hex.EncodeToString(sum[:8])
+```
 
-Both use object ref:
+Runtime capabilities:
+
+```go
+capability.New("activity.sessions", "workload.query_summary")
+```
+
+Security profile:
+
+```go
+adapter.SecurityProfile{ReadOnlyGuaranteed: true}
+```
+
+`Rules()` returns `[]finding.Rule{}` and `Close()` returns `nil` on every call.
+
+- [ ] **Step 3: Implement deterministic collectors**
+
+`fake.health` is `StrategySnapshot`, requires `activity.sessions`, and returns:
+
+```text
+core.connections.used = 12 count
+core.connections.limit = 100 count
+```
+
+`fake.workload` is `StrategyCounter`, requires `workload.query_summary`, and returns:
+
+```text
+first call  -> core.query.calls = 100 count
+second call -> core.query.calls = 140 count
+```
+
+Both use:
 
 ```go
 object.Ref{Kind: "fake.instance", ID: "local"}
 ```
 
-The counter collector keeps call state inside one runtime instance and is protected by a mutex so tests remain race-safe.
+The workload collector stores its call count behind `sync.Mutex`.
 
-`Rules()` returns an empty slice in this plan.
+- [ ] **Step 4: Add reusable contract suite**
 
-- [ ] **Step 3: Add reusable adapter-contract assertions**
+Create `test/contract/adapter_contract_test.go` with a table initially containing only `fake.New()`. For each adapter verify:
 
-Create `test/contract/adapter_contract_test.go` as a black-box contract test that imports `adapters/fake` and validates generic invariants:
+```text
+metadata ID/name/version/contract are non-empty
+contract version == adapter.ContractVersion
+matching test target opens successfully
+target fingerprint is non-empty and stable across two opens
+collector IDs are unique and non-empty
+produced signal keys are non-empty
+required capabilities are non-empty strings
+Close() may be called twice without failure
+```
 
-- adapter ID/name/version/contract version non-empty;
-- target fingerprint non-empty and stable;
-- all collector IDs are unique;
-- all produced signal keys are non-empty;
-- all finding-rule IDs, if any, are namespaced;
-- `Close()` is idempotent for the fake runtime;
-- no collector descriptor requires an empty capability.
+Use test target `fake://local` for the fake entry. The table structure must allow MySQL and Mongo entries to be added without changing the assertions.
 
-This test is intentionally structured so later MySQL/Mongo adapters can be added as table entries without copying the invariant suite.
-
-- [ ] **Step 4: Run race-enabled adapter tests**
+- [ ] **Step 5: Verify with race detector**
 
 ```bash
 go test -race ./adapters/fake ./test/contract -v
@@ -946,7 +997,7 @@ go test -race ./adapters/fake ./test/contract -v
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add adapters/fake test/contract
@@ -955,22 +1006,22 @@ git commit -m "feat: add fake adapter and contract test harness"
 
 ---
 
-### Task 6: Inspect application use-case and versioned report
+### Task 6: Inspect application service and `v1alpha1` report
 
 **Files:**
 - Create: `internal/app/inspect/service.go`
 - Create: `internal/app/inspect/service_test.go`
 
 **Interfaces:**
-- Consumes: adapter registry, adapter runtime, collection planner.
-- Produces: `inspect.Service.Run(ctx, rawTarget, sampleWindow) (inspect.Report, error)` and JSON schema version `dbprobe.inspect/v1alpha1`.
+- Consumes: registry, adapter runtime, collection planner.
+- Produces: `inspect.Service.Run(context.Context, string, time.Duration) (inspect.Report, error)`.
 
-- [ ] **Step 1: Write failing application test**
+- [ ] **Step 1: Write the end-to-end service test**
 
-Build the service with a registry containing `fake.New()` and a planner with an instant test waiter. Call:
+Compose registry with `fake.New()`, planner with `noopWaiter`, and call:
 
 ```go
-report, err := service.Run(ctx, "fake://local", 10*time.Second)
+report, err := service.Run(context.Background(), "fake://local", 10*time.Second)
 ```
 
 Assert:
@@ -979,59 +1030,53 @@ Assert:
 schema_version = dbprobe.inspect/v1alpha1
 target.engine = fake
 target.adapter_id = fake
-capabilities = [activity.sessions, workload.query_summary]
-observations contain connections.used=12 and connections.limit=100
-deltas contain core.query.calls delta=40 rate=4
-findings is an empty JSON array, not null
+capabilities sorted exactly [activity.sessions, workload.query_summary]
+observations include used=12, limit=100, calls=140
+deltas include core.query.calls delta=40 rate=4
+findings length = 0
 security.read_only_guaranteed = true
+warnings length = 0
 ```
 
-Run:
+Run `go test ./internal/app/inspect -v`. Expected: FAIL.
 
-```bash
-go test ./internal/app/inspect -v
-```
+- [ ] **Step 2: Implement report**
 
-Expected: FAIL.
-
-- [ ] **Step 2: Implement report and service**
-
-Create:
+Create in `service.go`:
 
 ```go
 const SchemaVersion = "dbprobe.inspect/v1alpha1"
 
 type Report struct {
-    SchemaVersion string                  `json:"schema_version"`
-    CollectedAt   time.Time               `json:"collected_at"`
-    Target        adapter.TargetMetadata  `json:"target"`
-    Capabilities  []capability.Capability `json:"capabilities"`
-    Security      adapter.SecurityProfile `json:"security"`
-    Observations  []signal.Observation    `json:"observations"`
-    Deltas        []signal.Delta          `json:"deltas"`
-    Findings      []finding.Finding       `json:"findings"`
-    Warnings      []collection.Warning    `json:"warnings"`
+    SchemaVersion string `json:"schema_version"`
+    CollectedAt time.Time `json:"collected_at"`
+    Target adapter.TargetMetadata `json:"target"`
+    Capabilities []capability.Capability `json:"capabilities"`
+    Security adapter.SecurityProfile `json:"security"`
+    Observations []signal.Observation `json:"observations"`
+    Deltas []signal.Delta `json:"deltas"`
+    Findings []finding.Finding `json:"findings"`
+    Warnings []collection.Warning `json:"warnings"`
 }
 ```
 
-`Service.Run` sequence must be exactly:
+`Service.Run` order is mandatory:
 
 ```text
-parse target
-→ resolve adapter
-→ open runtime
-→ defer close
-→ capture capabilities
-→ run collection planner
-→ evaluate runtime rules whose capabilities are satisfied
-→ build stable report
+ParseTarget
+Resolve adapter
+Open runtime
+defer Close
+read Target/Capabilities/SecurityProfile
+Planner.Run
+build finding.AnalysisContext
+evaluate only rules whose Requires are present
+return initialized non-nil Findings/Deltas/Warnings slices
 ```
 
-For this plan, fake adapter has zero rules so `Findings` is initialized with `make([]finding.Finding, 0)`.
+Returned error messages must not interpolate `TargetSpec.RawURL`.
 
-Errors returned to callers must not include the full raw connection URL. Parse/resolve/open errors may include only scheme/adapter-safe context.
-
-- [ ] **Step 3: Run use-case and whole-suite tests**
+- [ ] **Step 3: Verify service and full suite**
 
 ```bash
 go test ./internal/app/inspect -v
@@ -1058,29 +1103,29 @@ git commit -m "feat: add inspect application use case"
 - Create: `internal/surfaces/terminal/render_test.go`
 
 **Interfaces:**
-- Consumes: `inspect.Report` only.
-- Produces: `jsonsurface.Render(io.Writer, inspect.Report) error`; `terminal.Render(io.Writer, inspect.Report) error`.
+- Produces: `jsonsurface.Render(io.Writer, inspect.Report) error`, `terminal.Render(io.Writer, inspect.Report) error`.
 
-- [ ] **Step 1: Write failing JSON contract test**
+- [ ] **Step 1: Write JSON contract test**
 
-Construct a fixed report with a fixed timestamp and render it. Unmarshal into `map[string]any` and assert:
+Render a fixed `inspect.Report`, decode it into `map[string]any`, and assert the presence of exactly these top-level contract fields:
 
-- `schema_version` exists and equals `dbprobe.inspect/v1alpha1`;
-- `target`, `capabilities`, `security`, `observations`, `deltas`, `findings`, `warnings` are present;
-- no Go implementation field names leak into JSON;
-- findings serializes as `[]` when empty.
-
-Run:
-
-```bash
-go test ./internal/surfaces/json -v
+```text
+schema_version
+collected_at
+target
+capabilities
+security
+observations
+deltas
+findings
+warnings
 ```
 
-Expected: FAIL.
+Assert `schema_version == dbprobe.inspect/v1alpha1` and empty findings serialize as `[]`, not `null`.
+
+Run `go test ./internal/surfaces/json -v`. Expected: FAIL.
 
 - [ ] **Step 2: Implement JSON renderer**
-
-Use only `encoding/json`:
 
 ```go
 func Render(w io.Writer, report inspect.Report) error {
@@ -1090,11 +1135,11 @@ func Render(w io.Writer, report inspect.Report) error {
 }
 ```
 
-Do not add an alternate JSON DTO in this plan; `inspect.Report` is the v1alpha1 application contract.
+No second JSON DTO is introduced in this plan.
 
-- [ ] **Step 3: Write and implement minimal terminal renderer**
+- [ ] **Step 3: Write and implement terminal renderer**
 
-Terminal output for fake adapter must contain these stable facts without ANSI dependence:
+The test must require these lines for the fake report:
 
 ```text
 dbprobe · fake · local
@@ -1105,12 +1150,13 @@ deltas: 1
 findings: 0
 ```
 
-It may additionally print warnings. Keep this renderer intentionally minimal; dashboard styling belongs to a later plan.
+Implement with `fmt.Fprintf` only; do not add color/styling dependency yet.
 
-- [ ] **Step 4: Run surface tests**
+- [ ] **Step 4: Verify surfaces**
 
 ```bash
 go test ./internal/surfaces/... -v
+go test ./...
 ```
 
 Expected: PASS.
@@ -1124,125 +1170,120 @@ git commit -m "feat: add JSON and terminal report surfaces"
 
 ---
 
-### Task 8: CLI composition root and first executable vertical slice
+### Task 8: Cobra CLI composition root and executable inspect command
 
 **Files:**
+- Modify: `go.mod`
+- Create/modify: `go.sum`
 - Create: `cmd/dbprobe/main.go`
 - Create: `cmd/dbprobe/root.go`
 - Create: `cmd/dbprobe/inspect.go`
 
 **Interfaces:**
-- Consumes: fake adapter, registry, collection planner, inspect service, surfaces.
-- Produces: `dbprobe inspect <target>` with `--format=text|json` and `--sample-window`.
+- Produces: `dbprobe inspect <target> --format=text|json --sample-window=<duration>`.
 
-- [ ] **Step 1: Implement root command without business logic**
+- [ ] **Step 1: Add Cobra only now that code consumes it**
+
+Run:
+
+```bash
+go get github.com/spf13/cobra@v1.10.2
+go mod tidy
+```
+
+Expected: Cobra remains in `go.mod` because Task 8 immediately imports it; `go.sum` is created.
+
+- [ ] **Step 2: Implement root command**
 
 `root.go` exposes:
 
 ```go
-func newRootCommand() *cobra.Command
+func newRootCommand() *cobra.Command {
+    cmd := &cobra.Command{Use: "dbprobe", SilenceUsage: true}
+    cmd.AddCommand(newInspectCommand())
+    return cmd
+}
 ```
 
-with command name `dbprobe`, silence usage on runtime errors, and add the inspect command.
+`main.go` executes the root command and uses `os.Exit(1)` on error without a stack trace.
 
-`main.go` only executes the root command and exits non-zero on error.
+- [ ] **Step 3: Implement inspect command composition**
 
-- [ ] **Step 2: Implement inspect command composition**
+`newInspectCommand()` must:
 
-`inspect.go` must:
+- require exactly one target argument;
+- default `--format` to `text`;
+- allow only `text` and `json`;
+- default `--sample-window` to `1s`;
+- build registry with `fake.New()`;
+- use `collection.New(collection.RealWaiter{}, time.Now)`;
+- call inspect service;
+- dispatch the returned report to terminal or JSON renderer.
 
-1. require exactly one target argument;
-2. accept `--format` default `text`, allowed `text|json`;
-3. accept `--sample-window` default `1s`;
-4. instantiate registry with `fake.New()`;
-5. instantiate planner with `collection.RealWaiter{}` and `time.Now`;
-6. create inspect service;
-7. render selected surface;
-8. reject unsupported formats before opening an adapter.
+The concrete `fake` adapter import is allowed here because `cmd/dbprobe` is the composition root.
 
-No concrete adapter import may appear under `internal/surfaces` or `internal/core`; the concrete `fake` import is allowed only in this composition-root phase.
-
-- [ ] **Step 3: Build and run JSON smoke test**
+- [ ] **Step 4: Build and run JSON smoke test**
 
 ```bash
+mkdir -p bin
 go build -o ./bin/dbprobe ./cmd/dbprobe
 ./bin/dbprobe inspect fake://local --format=json --sample-window=10ms
 ```
 
-Expected JSON includes:
+Expected JSON contains `schema_version: dbprobe.inspect/v1alpha1`, target engine `fake`, and `core.query.calls` delta `40`. For a `10ms` window the rate is approximately `4000` per second.
 
-```json
-{
-  "schema_version": "dbprobe.inspect/v1alpha1",
-  "target": {
-    "engine": "fake",
-    "adapter_id": "fake"
-  }
-}
-```
-
-and one delta where `key` is `core.query.calls`, `delta` is `40`, and `rate_per_second` is approximately `4000` because the smoke window is `10ms`.
-
-- [ ] **Step 4: Run text smoke test**
+- [ ] **Step 5: Run text and failure smoke tests**
 
 ```bash
 ./bin/dbprobe inspect fake://local --sample-window=10ms
-```
-
-Expected to include:
-
-```text
-dbprobe · fake · local
-read-only: yes
-findings: 0
-```
-
-- [ ] **Step 5: Verify invalid target/format behavior**
-
-```bash
 ./bin/dbprobe inspect redis://local --sample-window=10ms
 ./bin/dbprobe inspect fake://local --format=xml --sample-window=10ms
 ```
 
-Expected: both exit non-zero; neither output contains credentials or a Go stack trace.
+Expected:
+
+- fake text command exits `0` and prints `dbprobe · fake · local`;
+- redis command exits non-zero with safe scheme-level error;
+- XML command exits non-zero before adapter open;
+- no command prints a stack trace or credentials.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add cmd/dbprobe
+git add go.mod go.sum cmd/dbprobe
 git commit -m "feat: expose inspect vertical slice through CLI"
 ```
 
 ---
 
-### Task 9: Final verification and foundation acceptance gate
+### Task 9: Foundation acceptance gate
 
 **Files:**
-- Modify only if verification exposes defects in files created by Tasks 1-8.
+- Modify only files from Tasks 1-8 if verification exposes a concrete defect.
 
 **Interfaces:**
-- Consumes: entire foundation runtime.
-- Produces: evidence that the repository is safe to begin the MySQL adapter plan.
+- Produces: evidence that MySQL adapter work can begin without changing dependency direction.
 
-- [ ] **Step 1: Format and static analysis**
+- [ ] **Step 1: Format, vet, and standard tests**
 
 ```bash
 make fmt
 make fmt-check
 make vet
+make test
 ```
 
-Expected: all exit `0`.
+Expected: PASS.
 
-- [ ] **Step 2: Run full tests with race detector**
+- [ ] **Step 2: Race suite**
 
 ```bash
-go test -race ./...
+make race
 ```
 
 Expected: PASS with no race reports.
 
-- [ ] **Step 3: Run dependency-boundary test explicitly**
+- [ ] **Step 3: Explicit architecture test**
 
 ```bash
 go test ./test/architecture -run TestDependencyBoundaries -v
@@ -1250,7 +1291,7 @@ go test ./test/architecture -run TestDependencyBoundaries -v
 
 Expected: PASS.
 
-- [ ] **Step 4: Run the executable acceptance examples**
+- [ ] **Step 4: Executable contract check**
 
 ```bash
 go build -o ./bin/dbprobe ./cmd/dbprobe
@@ -1258,49 +1299,56 @@ go build -o ./bin/dbprobe ./cmd/dbprobe
 ./bin/dbprobe inspect fake://local --sample-window=10ms
 ```
 
-Verify `/tmp/dbprobe-report.json` parses as JSON and has schema version `dbprobe.inspect/v1alpha1`.
+Use the standard library to validate the JSON without adding a project dependency:
 
-- [ ] **Step 5: Confirm MVP-foundation exit criteria manually**
+```bash
+go run ./cmd/dbprobe inspect fake://local --format=json --sample-window=1ms > /tmp/dbprobe-report-2.json
+```
 
-The plan is complete only when every statement below is true:
+Both JSON files must parse, carry `dbprobe.inspect/v1alpha1`, and contain the same signal keys.
+
+- [ ] **Step 5: Confirm all exit criteria**
+
+Every statement must be true:
 
 ```text
-[ ] core contains no database driver
-[ ] fake adapter resolves from scheme through registry
-[ ] capabilities suppress unsupported collectors
-[ ] one collector failure does not discard successful evidence
-[ ] counter sampling is scheduled centrally by core
-[ ] reset counters never produce negative rates
-[ ] report contains explicit read-only security profile
-[ ] versioned JSON is emitted from the same application report used by terminal rendering
-[ ] adapter contract test harness is reusable for MySQL
-[ ] architecture import guard runs in CI
+[ ] core imports no real database driver or concrete adapter
+[ ] fake:// resolves through the registry
+[ ] missing capabilities skip incompatible collectors
+[ ] collector failure preserves other evidence and produces a warning
+[ ] counters are sampled centrally by core
+[ ] counter resets never create negative rates
+[ ] security profile explicitly states read-only status
+[ ] JSON and terminal consume the same inspect.Report
+[ ] adapter contract suite can accept later MySQL/Mongo test cases
+[ ] architecture guard runs in GitHub Actions
 [ ] go test -race ./... passes
 ```
 
-- [ ] **Step 6: Commit verification-only fixes, if any**
+- [ ] **Step 6: Commit only real verification fixes**
 
-If verification required corrections, stage only those corrected files and use:
+If verification changed code:
 
 ```bash
+git add <only-the-corrected-paths>
 git commit -m "fix: satisfy foundation runtime acceptance gate"
 ```
 
-If no corrections were necessary, do not create an empty commit.
+If verification required no change, create no commit.
 
 ---
 
 ## Definition of Done
 
-This plan is done when a fresh checkout can run:
+A fresh checkout must successfully run:
 
 ```bash
 make ci
-go test -race ./...
+make race
 go build -o ./bin/dbprobe ./cmd/dbprobe
 ./bin/dbprobe inspect fake://local --format=json --sample-window=10ms
 ```
 
-and produce a valid `dbprobe.inspect/v1alpha1` report containing deterministic fake observations plus a centrally calculated counter delta.
+The report must be `dbprobe.inspect/v1alpha1`, contain deterministic fake observations, expose the read-only security profile, and contain a centrally computed `core.query.calls` delta.
 
-At that point the repository is ready for the next implementation plan: **MySQL Adapter MVP**, which will add MySQL 8.0/8.4 connectivity, capability/privilege discovery, Performance Schema/sys collectors, and the first engine-native findings without changing the established core dependency direction.
+Only after this gate passes should the next plan start: **MySQL Adapter MVP** covering MySQL 8.0/8.4 connectivity, privilege/capability discovery, Performance Schema/sys collection, and initial engine-native deterministic findings without modifying core dependency direction.
