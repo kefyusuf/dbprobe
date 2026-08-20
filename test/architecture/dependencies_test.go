@@ -17,10 +17,21 @@ type rule struct {
 }
 
 func TestDependencyBoundaries(t *testing.T) {
+	databaseDependencies := []string{
+		"/adapters/",
+		"database/sql",
+		"go-sql-driver/mysql",
+		"jackc/pgx",
+		"mongo-driver",
+		"gocql",
+	}
+
 	rules := []rule{
-		{"../../internal/core", []string{"/adapters/", "go-sql-driver/mysql", "jackc/pgx", "mongo-driver", "gocql"}},
-		{"../../sdk", []string{"/adapters/", "/internal/"}},
-		{"../../internal/surfaces", []string{"/adapters/"}},
+		{"../../internal/core", databaseDependencies},
+		{"../../internal/app", databaseDependencies},
+		{"../../internal/platform", databaseDependencies},
+		{"../../internal/surfaces", databaseDependencies},
+		{"../../sdk", append(append([]string{}, databaseDependencies...), "/internal/")},
 	}
 
 	for _, r := range rules {
