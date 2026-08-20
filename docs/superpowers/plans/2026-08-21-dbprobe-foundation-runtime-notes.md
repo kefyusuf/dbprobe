@@ -53,4 +53,4 @@ type noopWaiter struct{}
 func (noopWaiter) Wait(context.Context, time.Duration) error { return nil }
 ```
 
-These signatures override any less-specific wording in the main foundation plan. No implementation scope is added by this note.
+These signatures override less-specific wording in the main foundation plan. No implementation scope is added by this note.
