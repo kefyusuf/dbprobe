@@ -48,23 +48,29 @@ func ParseConfig(raw string) (Config, error) {
 	}
 
 	addr := net.JoinHostPort(host, port)
-	driverCfg := mysqldriver.NewConfig()
-	driverCfg.User = user
-	driverCfg.Passwd = password
-	driverCfg.Net = "tcp"
-	driverCfg.Addr = addr
-	driverCfg.DBName = dbName
-	driverCfg.Timeout = 5 * time.Second
-	driverCfg.ReadTimeout = 10 * time.Second
-	driverCfg.WriteTimeout = 10 * time.Second
+	base := mysqldriver.NewConfig()
+	base.User = user
+	base.Passwd = password
+	base.Net = "tcp"
+	base.Addr = addr
+	base.DBName = dbName
 
-	canonical := driverCfg.FormatDSN()
+	canonical := base.FormatDSN()
 	if u.RawQuery != "" {
 		canonical += "?" + u.RawQuery
 	}
 	parsed, err := mysqldriver.ParseDSN(canonical)
 	if err != nil {
 		return Config{}, fmt.Errorf("invalid MySQL connection options")
+	}
+	if parsed.Timeout == 0 {
+		parsed.Timeout = 5 * time.Second
+	}
+	if parsed.ReadTimeout == 0 {
+		parsed.ReadTimeout = 10 * time.Second
+	}
+	if parsed.WriteTimeout == 0 {
+		parsed.WriteTimeout = 10 * time.Second
 	}
 
 	return Config{
