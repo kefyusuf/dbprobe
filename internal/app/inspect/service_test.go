@@ -9,7 +9,9 @@ import (
 	"github.com/kefyusuf/dbprobe/adapters/fake"
 	"github.com/kefyusuf/dbprobe/internal/app/inspect"
 	"github.com/kefyusuf/dbprobe/internal/core/collection"
+	"github.com/kefyusuf/dbprobe/internal/core/temporal"
 	"github.com/kefyusuf/dbprobe/internal/platform/adapterregistry"
+	"github.com/kefyusuf/dbprobe/internal/platform/baseline"
 	"github.com/kefyusuf/dbprobe/sdk/capability"
 	"github.com/kefyusuf/dbprobe/sdk/signal"
 )
@@ -65,5 +67,31 @@ func TestServiceRunsFakeAdapterEndToEnd(t *testing.T) {
 	}
 	if report.Warnings == nil || len(report.Warnings) != 0 {
 		t.Fatalf("warnings = %#v; want initialized empty slice", report.Warnings)
+	}
+}
+
+func TestServiceWithHistoryPersistsSuccessfulInspection(t *testing.T) {
+	registry, err := adapterregistry.New(fake.New())
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := baseline.NewMemory()
+	service := inspect.New(registry, collection.New(noopWaiter{}, time.Now)).WithHistory(store)
+	report, err := service.Run(context.Background(), "fake://local", 10*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	latest, err := store.Latest(context.Background(), report.Target.Fingerprint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if latest.SchemaVersion != temporal.SnapshotSchemaVersion || latest.TargetFingerprint != report.Target.Fingerprint || latest.Engine != "fake" || latest.AdapterID != "fake" {
+		t.Fatalf("snapshot = %#v", latest)
+	}
+	if latest.AdapterVersion != "0.1.0" {
+		t.Fatalf("adapter version = %q", latest.AdapterVersion)
+	}
+	if len(latest.Observations) != len(report.Observations) || len(latest.Deltas) != len(report.Deltas) {
+		t.Fatalf("snapshot evidence differs from report")
 	}
 }
