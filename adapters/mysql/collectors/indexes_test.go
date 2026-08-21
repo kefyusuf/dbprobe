@@ -11,7 +11,7 @@ import (
 
 func TestIndexCollectorEmitsStableSchemaMetadataAndReadCount(t *testing.T) {
 	q := &recordingQueryer{rows: [][]string{{
-		"shop", "orders", "idx_customer_created", "1", "customer_id,created_at", "0",
+		"shop", "orders", "idx_customer_created", "1", "customer_id,created_at", "15:col:customer_id:full:A;14:col:created_at:full:A", "0",
 	}}}
 	got, err := NewIndexes(q, "shop", 100).Collect(context.Background(), collector.Request{Phase: collector.PhaseSampleA})
 	if err != nil {
@@ -19,6 +19,7 @@ func TestIndexCollectorEmitsStableSchemaMetadataAndReadCount(t *testing.T) {
 	}
 	assertIndexNumber(t, got, "mysql.index.reads", 0)
 	assertIndexText(t, got, "mysql.index.columns", "customer_id,created_at")
+	assertIndexText(t, got, "mysql.index.signature", "15:col:customer_id:full:A;14:col:created_at:full:A")
 	assertIndexBool(t, got, "mysql.index.unique", false)
 	assertIndexBool(t, got, "mysql.index.primary", false)
 	if len(q.arguments) != 2 || q.arguments[0] != "shop" || q.arguments[1] != 100 {
@@ -27,10 +28,15 @@ func TestIndexCollectorEmitsStableSchemaMetadataAndReadCount(t *testing.T) {
 	if !strings.Contains(q.query, "information_schema.statistics") || !strings.Contains(q.query, "COUNT_READ") {
 		t.Fatalf("unexpected index query: %s", q.query)
 	}
+	for _, required := range []string{"SUB_PART", "COLLATION", "EXPRESSION"} {
+		if !strings.Contains(q.query, required) {
+			t.Fatalf("index signature query does not include %s: %s", required, q.query)
+		}
+	}
 }
 
 func TestIndexCollectorMarksPrimaryAndClampsLimit(t *testing.T) {
-	q := &recordingQueryer{rows: [][]string{{"shop", "orders", "PRIMARY", "0", "id", "100"}}}
+	q := &recordingQueryer{rows: [][]string{{"shop", "orders", "PRIMARY", "0", "id", "6:col:id:full:A", "100"}}}
 	got, err := NewIndexes(q, "shop", 999).Collect(context.Background(), collector.Request{})
 	if err != nil {
 		t.Fatal(err)
