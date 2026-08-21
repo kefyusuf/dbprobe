@@ -161,6 +161,9 @@ func (r *runtime) Collectors() []collector.Collector {
 		mysqlcollectors.NewQueries(queryer, r.database, 20),
 		mysqlcollectors.NewIndexes(queryer, r.database, 100),
 		mysqlcollectors.NewTables(queryer, r.database, 100),
+		mysqlcollectors.NewTransactions(queryer, 50),
+		mysqlcollectors.NewLocks(queryer, r.target.Fingerprint, 100),
+		mysqlcollectors.NewReplication(queryer, 100),
 	)
 	return collectors
 }
