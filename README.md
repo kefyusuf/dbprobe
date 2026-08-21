@@ -2,6 +2,8 @@
 
 Database intelligence runtime for deterministic, read-only diagnostics across multiple database engines.
 
+> MySQL adapter source implementation is feature-complete for the MVP scope. Full Go 1.25 and Docker MySQL 8.0/8.4 acceptance remain pending because the current execution environment has no Actions quota, outbound DNS, or Docker runtime.
+
 ## Architecture
 
 `dbprobe` is database-agnostic at its core. Database-specific connectivity, SQL, telemetry and deterministic rules live behind adapter contracts.
