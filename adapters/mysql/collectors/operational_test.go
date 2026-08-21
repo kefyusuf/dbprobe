@@ -30,7 +30,7 @@ func TestLockCollectorUsesStableTableObjectAndOpaqueEdgeEvidence(t *testing.T) {
 	assertOperationalText(t, got, "mysql.lock_wait.index", "PRIMARY")
 }
 
-func TestReplicationCollectorSeparatesReceiverAndApplierState(t *testing.T) {
+func TestReplicationCollectorSeparatesStateAndNeverCollectsErrorMessageText(t *testing.T) {
 	q := &recordingQueryer{rows: [][]string{
 		{"receiver", "default", "ON", "0", ""},
 		{"applier", "default", "OFF", "0", ""},
@@ -44,10 +44,8 @@ func TestReplicationCollectorSeparatesReceiverAndApplierState(t *testing.T) {
 	assertOperationalBool(t, got, "mysql.replication.applier_on", "mysql.replication_channel", "default", false)
 	assertOperationalNumber(t, got, "mysql.replication.error_code", "mysql.replication_worker", "default:worker:1", 1062)
 	for _, observation := range got {
-		if observation.Key == "mysql.replication.error_message" {
-			if observation.Text == nil || len(*observation.Text) > 512 {
-				t.Fatalf("unbounded replication error: %#v", observation.Text)
-			}
+		if observation.Text != nil && *observation.Text == "Duplicate entry 'secret-value'" {
+			t.Fatal("replication error message leaked application data")
 		}
 	}
 }
