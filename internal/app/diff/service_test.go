@@ -11,7 +11,7 @@ import (
 	"github.com/kefyusuf/dbprobe/sdk/signal"
 )
 
-func TestServiceBuildsVersionedDiffAndEventsFromLatestTwoSnapshots(t *testing.T) {
+func TestServiceBuildsVersionedDiffAndBoundedEventsFromLatestTwoSnapshots(t *testing.T) {
 	ctx := context.Background()
 	store := baseline.NewMemory()
 	at := time.Date(2026, 8, 21, 8, 0, 0, 0, time.UTC)
@@ -57,5 +57,15 @@ func TestServiceBuildsVersionedDiffAndEventsFromLatestTwoSnapshots(t *testing.T)
 	}
 	if len(report.Changes) != 1 || len(report.QueryRegressions) != 1 || len(report.Events) != 1 {
 		t.Fatalf("report=%#v", report)
+	}
+	event := report.Events[0]
+	if event.Type != temporal.EventQueryRegression {
+		t.Fatalf("event type=%q", event.Type)
+	}
+	if !event.ObservedAfter.Equal(previous.CollectedAt) || !event.ObservedBefore.Equal(current.CollectedAt) {
+		t.Fatalf("event bounds=%v..%v want %v..%v", event.ObservedAfter, event.ObservedBefore, previous.CollectedAt, current.CollectedAt)
+	}
+	if event.Confidence <= 0 || event.Confidence > 1 {
+		t.Fatalf("event confidence=%v", event.Confidence)
 	}
 }
