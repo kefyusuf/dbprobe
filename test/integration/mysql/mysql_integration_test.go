@@ -5,7 +5,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"net"
 	"net/url"
 	"os"
@@ -20,6 +19,7 @@ import (
 	"github.com/kefyusuf/dbprobe/internal/platform/adapterregistry"
 	jsonsurface "github.com/kefyusuf/dbprobe/internal/surfaces/json"
 	"github.com/kefyusuf/dbprobe/sdk/adapter"
+	"github.com/kefyusuf/dbprobe/sdk/capability"
 )
 
 type targetCase struct {
@@ -80,8 +80,8 @@ func TestMySQLAdapterMatrix(t *testing.T) {
 			if first.Target().Fingerprint == "" || first.Target().Fingerprint != second.Target().Fingerprint {
 				t.Fatalf("unstable fingerprint: %q vs %q", first.Target().Fingerprint, second.Target().Fingerprint)
 			}
-			for _, required := range []string{"mysql.performance_schema", "workload.query_summary", "schema.indexes", "schema.objects", "storage.cache", "query.explain", "mysql.innodb"} {
-				if !first.Capabilities().Has(requiredCapability(required)) {
+			for _, required := range []capability.Capability{"mysql.performance_schema", "workload.query_summary", "schema.indexes", "schema.objects", "storage.cache", "query.explain", "mysql.innodb"} {
+				if !first.Capabilities().Has(required) {
 					t.Fatalf("missing expected capability %q; got %v", required, first.Capabilities().List())
 				}
 			}
@@ -135,11 +135,10 @@ func openFixtureDB(t *testing.T, raw string) *sql.DB {
 	if err != nil {
 		t.Fatal(err)
 	}
-	password := ""
 	if u.User == nil {
 		t.Fatal("fixture URI requires credentials")
 	}
-	password, _ = u.User.Password()
+	password, _ := u.User.Password()
 	port := u.Port()
 	if port == "" {
 		port = "3306"
@@ -165,10 +164,6 @@ func envOr(key, fallback string) string {
 		return value
 	}
 	return fallback
-}
-
-func requiredCapability(value string) interface{ ~string } {
-	panic(fmt.Sprintf("unreachable capability conversion for %s", value))
 }
 
 func hasObservation(report inspect.Report, key string) bool {
