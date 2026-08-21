@@ -8,11 +8,14 @@ import (
 )
 
 type Config struct {
-	DriverDSN   string
 	Host        string
 	Port        string
 	Database    string
 	DisplayName string
+
+	driverDSN string
+	rawTarget string
+	password  string
 }
 
 func ParseConfig(raw string) (Config, error) {
@@ -55,10 +58,29 @@ func ParseConfig(raw string) (Config, error) {
 	}
 
 	return Config{
-		DriverDSN:   driverDSN,
 		Host:        host,
 		Port:        port,
 		Database:    dbName,
 		DisplayName: addr + "/" + dbName,
+		driverDSN:   driverDSN,
+		rawTarget:   raw,
+		password:    password,
 	}, nil
+}
+
+func sanitizeError(err error, cfg Config) error {
+	if err == nil {
+		return nil
+	}
+	message := err.Error()
+	if cfg.rawTarget != "" {
+		message = strings.ReplaceAll(message, cfg.rawTarget, "<redacted-target>")
+	}
+	if cfg.driverDSN != "" {
+		message = strings.ReplaceAll(message, cfg.driverDSN, "<redacted-dsn>")
+	}
+	if cfg.password != "" {
+		message = strings.ReplaceAll(message, cfg.password, "<redacted>")
+	}
+	return fmt.Errorf("%s", message)
 }
