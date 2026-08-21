@@ -28,6 +28,25 @@ var safePlanStringSliceKeys = map[string]struct{}{
 	"used_key_parts": {},
 }
 
+var safePlanNumberKeys = map[string]struct{}{
+	"select_id":              {},
+	"rows_examined_per_scan": {},
+	"rows_produced_per_join": {},
+	"filtered":               {},
+	"rows_for_plan":          {},
+	"rows_to_scan":           {},
+}
+
+var safePlanBoolKeys = map[string]struct{}{
+	"using_index":           {},
+	"using_index_condition": {},
+	"using_temporary_table": {},
+	"using_filesort":        {},
+	"dependent":             {},
+	"cacheable":             {},
+	"using_mrr":             {},
+}
+
 func sanitizeMySQLJSONPlan(raw string) (string, error) {
 	decoder := json.NewDecoder(strings.NewReader(raw))
 	decoder.UseNumber()
@@ -39,6 +58,7 @@ func sanitizeMySQLJSONPlan(raw string) (string, error) {
 	if err := decoder.Decode(&trailing); err != io.EOF {
 		return "", fmt.Errorf("invalid MySQL JSON plan")
 	}
+
 	sanitized := sanitizePlanValue("", value)
 	encoded, err := json.Marshal(sanitized)
 	if err != nil {
@@ -65,7 +85,13 @@ func sanitizePlanValue(key string, value any) any {
 				}
 				continue
 			}
-			out[childKey] = sanitizePlanValue(childKey, childValue)
+			cleaned := sanitizePlanValue(childKey, childValue)
+			if cleaned != nil {
+				out[childKey] = cleaned
+			}
+		}
+		if len(out) == 0 {
+			return nil
 		}
 		return out
 	case []any:
@@ -75,8 +101,23 @@ func sanitizePlanValue(key string, value any) any {
 			return typed
 		}
 		return nil
-	case json.Number, float64, bool, nil:
-		return typed
+	case json.Number:
+		if _, allowed := safePlanNumberKeys[key]; allowed {
+			return typed
+		}
+		return nil
+	case float64:
+		if _, allowed := safePlanNumberKeys[key]; allowed {
+			return typed
+		}
+		return nil
+	case bool:
+		if _, allowed := safePlanBoolKeys[key]; allowed {
+			return typed
+		}
+		return nil
+	case nil:
+		return nil
 	default:
 		return nil
 	}
@@ -92,9 +133,9 @@ func sanitizePlanSlice(key string, values []any) []any {
 			}
 			continue
 		}
-		clean := sanitizePlanValue(key, value)
-		if clean != nil {
-			out = append(out, clean)
+		cleaned := sanitizePlanValue(key, value)
+		if cleaned != nil {
+			out = append(out, cleaned)
 		}
 	}
 	return out
