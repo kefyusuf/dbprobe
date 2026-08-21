@@ -47,6 +47,12 @@ test-mysql:
 	$(BINARY) inspect '$(MYSQL84_DSN)' --format=json --sample-window=10ms > /tmp/dbprobe-mysql-report.json; \
 	grep -q '"schema_version": "dbprobe.inspect/v1alpha1"' /tmp/dbprobe-mysql-report.json; \
 	grep -q '"engine": "mysql"' /tmp/dbprobe-mysql-report.json; \
+	$(BINARY) explain '$(MYSQL84_DSN)' --statement "SELECT * FROM shop.customers WHERE email = 'alice@example.test'" --format=json > /tmp/dbprobe-mysql-explain.json; \
+	grep -q '"schema_version": "dbprobe.explain/v1alpha1"' /tmp/dbprobe-mysql-explain.json; \
+	grep -q '"sanitized": true' /tmp/dbprobe-mysql-explain.json; \
+	grep -q 'mysql-json-sanitized' /tmp/dbprobe-mysql-explain.json; \
+	if grep -q 'alice@example.test' /tmp/dbprobe-mysql-explain.json; then echo 'MySQL explain leaked query literal'; exit 1; fi; \
+	if grep -q 'attached_condition' /tmp/dbprobe-mysql-explain.json; then echo 'MySQL explain leaked attached condition'; exit 1; fi; \
 	if $(BINARY) inspect 'mysql://dbprobe:wrong-secret@127.0.0.1:13307/shop' --format=json --sample-window=10ms >/tmp/dbprobe-mysql-bad.out 2>/tmp/dbprobe-mysql-bad.err; then echo 'bad MySQL credentials unexpectedly succeeded'; exit 1; fi; \
 	if grep -q 'wrong-secret' /tmp/dbprobe-mysql-bad.err; then echo 'MySQL credential leaked in error output'; exit 1; fi
 
