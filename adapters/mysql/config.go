@@ -10,6 +10,13 @@ import (
 	mysqldriver "github.com/go-sql-driver/mysql"
 )
 
+var allowedConnectionOptions = map[string]struct{}{
+	"tls":          {},
+	"timeout":      {},
+	"readTimeout":  {},
+	"writeTimeout": {},
+}
+
 type Config struct {
 	Host        string
 	Port        string
@@ -47,6 +54,17 @@ func ParseConfig(raw string) (Config, error) {
 		password, _ = u.User.Password()
 	}
 
+	safeQuery := url.Values{}
+	for key, values := range u.Query() {
+		if _, allowed := allowedConnectionOptions[key]; !allowed {
+			return Config{}, fmt.Errorf("unsupported MySQL connection option %q", key)
+		}
+		if len(values) != 1 {
+			return Config{}, fmt.Errorf("MySQL connection option %q must be specified once", key)
+		}
+		safeQuery.Set(key, values[0])
+	}
+
 	addr := net.JoinHostPort(host, port)
 	base := mysqldriver.NewConfig()
 	base.User = user
@@ -56,8 +74,8 @@ func ParseConfig(raw string) (Config, error) {
 	base.DBName = dbName
 
 	canonical := base.FormatDSN()
-	if u.RawQuery != "" {
-		canonical += "?" + u.RawQuery
+	if encoded := safeQuery.Encode(); encoded != "" {
+		canonical += "?" + encoded
 	}
 	parsed, err := mysqldriver.ParseDSN(canonical)
 	if err != nil {
