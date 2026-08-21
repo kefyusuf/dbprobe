@@ -83,6 +83,7 @@ func TestHealthCounterMarksCumulativeSignals(t *testing.T) {
 		{"Innodb_buffer_pool_reads", "50"},
 		{"Innodb_row_lock_waits", "9"},
 		{"Innodb_log_waits", "2"},
+		{"Innodb_deadlocks", "3"},
 		{"Com_commit", "700"},
 		{"Com_rollback", "4"},
 	}}
@@ -98,6 +99,7 @@ func TestHealthCounterMarksCumulativeSignals(t *testing.T) {
 		"mysql.innodb.buffer_pool.reads":         50,
 		"mysql.innodb.row_lock_waits":            9,
 		"mysql.innodb.log_waits":                 2,
+		"mysql.innodb.deadlocks":                 3,
 		"mysql.statements.commit":                700,
 		"mysql.statements.rollback":              4,
 	} {
