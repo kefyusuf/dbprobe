@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/kefyusuf/dbprobe/internal/core/collection"
+	corefindings "github.com/kefyusuf/dbprobe/internal/core/findings"
 	"github.com/kefyusuf/dbprobe/internal/platform/adapterregistry"
 	"github.com/kefyusuf/dbprobe/sdk/adapter"
 	"github.com/kefyusuf/dbprobe/sdk/capability"
@@ -65,7 +66,9 @@ func (s *Service) Run(ctx context.Context, rawTarget string, sampleWindow time.D
 		Previous:     []signal.Observation{},
 		Deltas:       collected.Deltas,
 	}
-	for _, rule := range runtime.Rules() {
+	rules := corefindings.Rules()
+	rules = append(rules, runtime.Rules()...)
+	for _, rule := range rules {
 		if !caps.HasAll(rule.Requires()) {
 			continue
 		}
