@@ -38,19 +38,22 @@ func TestParseConfigUsesDefaultPort(t *testing.T) {
 	}
 }
 
-func TestParseConfigRejectsUnsafeOrUnknownOptionsWithoutEchoingValues(t *testing.T) {
+func TestParseConfigRejectsUnsafeOrUnknownOptionsWithoutEchoingInput(t *testing.T) {
 	for _, raw := range []string{
 		"mysql://user:secret@db.example/shop?multiStatements=true",
 		"mysql://user:secret@db.example/shop?allowAllFiles=true",
 		"mysql://user:secret@db.example/shop?allowCleartextPasswords=true",
 		"mysql://user:secret@db.example/shop?sql_mode=VERY_SECRET_VALUE",
+		"mysql://user:secret@db.example/shop?VERY_SECRET_KEY=value",
 	} {
 		_, err := ParseConfig(raw)
 		if err == nil {
 			t.Fatalf("expected unsafe option to be rejected: %s", raw)
 		}
-		if strings.Contains(err.Error(), "VERY_SECRET_VALUE") || strings.Contains(err.Error(), "secret") || strings.Contains(err.Error(), raw) {
-			t.Fatalf("option error leaks value or credentials: %q", err)
+		for _, forbidden := range []string{"VERY_SECRET_VALUE", "VERY_SECRET_KEY", "secret", raw} {
+			if strings.Contains(err.Error(), forbidden) {
+				t.Fatalf("option error leaks input %q: %q", forbidden, err)
+			}
 		}
 	}
 }
