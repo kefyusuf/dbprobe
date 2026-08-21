@@ -29,19 +29,25 @@ type cliExplainRuntime struct{ statement string }
 func (*cliExplainRuntime) Target() adapter.TargetMetadata {
 	return adapter.TargetMetadata{Engine: "testdb", AdapterID: "cli-explain", Fingerprint: "fp", DisplayName: "local"}
 }
-func (*cliExplainRuntime) Capabilities() capability.Set { return capability.New("query.explain") }
+func (*cliExplainRuntime) Capabilities() capability.Set     { return capability.New("query.explain") }
 func (*cliExplainRuntime) Collectors() []collector.Collector { return nil }
-func (*cliExplainRuntime) Rules() []finding.Rule { return nil }
+func (*cliExplainRuntime) Rules() []finding.Rule           { return nil }
 func (*cliExplainRuntime) SecurityProfile() adapter.SecurityProfile {
 	return adapter.SecurityProfile{ReadOnlyGuaranteed: true}
 }
 func (*cliExplainRuntime) Close() error { return nil }
 func (r *cliExplainRuntime) ExplainPlan(_ context.Context, request adapter.ExplainRequest) (adapter.ExplainResult, error) {
 	r.statement = request.Statement
-	return adapter.ExplainResult{Engine: "testdb", Format: "test-json", Estimated: true, Plan: `{"query_block":{"select_id":1}}`}, nil
+	return adapter.ExplainResult{
+		Engine:    "testdb",
+		Format:    "test-json-sanitized",
+		Estimated: true,
+		Sanitized: true,
+		Plan:      `{"query_block":{"select_id":1}}`,
+	}, nil
 }
 
-func TestExplainCommandRendersInjectedJSON(t *testing.T) {
+func TestExplainCommandRendersInjectedSanitizedJSON(t *testing.T) {
 	runtime := &cliExplainRuntime{}
 	factory := func() (*adapterregistry.Registry, error) {
 		return adapterregistry.New(cliExplainAdapter{runtime: runtime})
@@ -59,7 +65,7 @@ func TestExplainCommandRendersInjectedJSON(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
 		t.Fatalf("invalid JSON: %v\n%s", err, stdout.String())
 	}
-	if report["schema_version"] != "dbprobe.explain/v1alpha1" || report["format"] != "test-json" || report["estimated"] != true {
+	if report["schema_version"] != "dbprobe.explain/v1alpha1" || report["format"] != "test-json-sanitized" || report["estimated"] != true || report["sanitized"] != true {
 		t.Fatalf("report=%#v", report)
 	}
 	if runtime.statement != "SELECT 1" {
