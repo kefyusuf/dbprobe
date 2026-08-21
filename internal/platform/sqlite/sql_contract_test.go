@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/kefyusuf/dbprobe/internal/core/temporal"
+	"github.com/kefyusuf/dbprobe/sdk/signal"
 )
 
 func TestNewMigratesVersionZeroAndAppliesConnectionPragmas(t *testing.T) {
@@ -154,5 +155,30 @@ func TestMissingHistoryReturnsSnapshotNotFound(t *testing.T) {
 	}
 	if _, err := store.List(context.Background(), "missing", 10); err != temporal.ErrSnapshotNotFound {
 		t.Fatalf("List() error=%v; want %v", err, temporal.ErrSnapshotNotFound)
+	}
+}
+
+func TestDuplicateSnapshotIDRequiresEquivalentPayload(t *testing.T) {
+	state := newFakeSQLiteState(1)
+	db := openFakeSQLiteDB(t, state)
+	defer db.Close()
+	store, err := New(context.Background(), db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := codecSnapshot(t)
+	if err := store.Save(context.Background(), first); err != nil {
+		t.Fatal(err)
+	}
+	modified := first
+	value := 999.0
+	modified.Observations = append([]signal.Observation(nil), first.Observations...)
+	modified.Observations[0] = first.Observations[0]
+	modified.Observations[0].Number = &value
+	if modified.ID != first.ID {
+		t.Fatal("test requires same snapshot identity")
+	}
+	if err := store.Save(context.Background(), modified); err == nil {
+		t.Fatal("expected duplicate snapshot identity mismatch error")
 	}
 }
