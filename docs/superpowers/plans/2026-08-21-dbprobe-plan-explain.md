@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a database-agnostic plan-inspection contract and a MySQL implementation that returns estimated `EXPLAIN FORMAT=JSON` output without executing the target query.
+**Goal:** Add a database-agnostic, privacy-preserving plan-inspection contract and a MySQL implementation that returns sanitized estimated `EXPLAIN FORMAT=JSON` metadata without intentionally executing the target query.
 
-**Architecture:** Plan inspection is an optional SDK capability implemented by adapter runtimes; `adapter.Runtime` itself is not widened. The application layer resolves a target, requires `query.explain`, type-asserts the optional `adapter.PlanExplainer`, and returns a versioned generic report. MySQL accepts a conservative single `SELECT` statement only and always prepends `EXPLAIN FORMAT=JSON`; `EXPLAIN ANALYZE` is never generated or accepted.
+**Architecture:** Plan inspection is an optional SDK capability implemented by adapter runtimes; `adapter.Runtime` is not widened. The application layer resolves a target, requires `query.explain`, type-asserts `adapter.PlanExplainer`, and renders only results explicitly marked `Estimated=true` and `Sanitized=true`. MySQL accepts a conservative single `SELECT`, executes only `EXPLAIN FORMAT=JSON` inside a bounded read-only transaction, rolls the transaction back, and sanitizes the JSON plan through a scalar allowlist before it crosses the adapter boundary.
 
 **Tech Stack:** Go 1.25, existing adapter SDK/registry, Cobra CLI, MySQL 8.0/8.4, `go-sql-driver/mysql v1.10.0`.
 
@@ -13,12 +13,19 @@
 ## Global Constraints
 
 - Core/application code must not import the MySQL driver or concrete MySQL adapter.
-- Plan inspection is read-only and estimated; no `EXPLAIN ANALYZE`, query execution, DDL, DML execution, or remediation.
-- MVP input is one `SELECT` statement only; CTE/DML explain support is deferred until a real SQL parser or equivalent safe contract exists.
-- User SQL is never logged/persisted by the plan service.
+- `adapter.Runtime` remains unchanged; plan inspection is an optional interface.
+- No `EXPLAIN ANALYZE` execution path exists.
+- MVP accepts one `SELECT` statement only; `WITH`, DML, `EXPLAIN`, multi-statements, locking clauses, `INTO`, and session assignment are rejected.
+- Statement input is limited to 64 KiB.
+- MySQL plan execution is bounded to 5 seconds.
+- MySQL uses `BeginTx(... ReadOnly:true)` and always rolls back after retrieving the plan.
+- Raw MySQL JSON plans are limited to 1 MiB before sanitization.
+- Raw condition/expression/literal fields are not emitted. Scalar values survive only through explicit safe-key allowlists.
+- `ExplainRequest.Statement` is never JSON-serialized.
+- Application/surfaces reject any adapter result with `Sanitized=false`.
 - MySQL connection options continue to reject `multiStatements`.
-- Adapter-originated errors must not include credentials or raw target URLs.
-- JSON output is versioned.
+- Adapter-originated errors must not include credentials, raw target URLs, or user SQL.
+- JSON output is versioned as `dbprobe.explain/v1alpha1`.
 
 ---
 
@@ -26,16 +33,22 @@
 
 ```text
 sdk/adapter/explain.go
+sdk/adapter/explain_test.go
 internal/app/explain/service.go
 internal/app/explain/service_test.go
 adapters/mysql/explain.go
 adapters/mysql/explain_test.go
+adapters/mysql/explain_sanitize.go
+adapters/mysql/explain_sanitize_test.go
 internal/surfaces/json/explain.go
 internal/surfaces/json/explain_test.go
 internal/surfaces/terminal/explain.go
 internal/surfaces/terminal/explain_test.go
+cmd/dbprobe/registry.go
 cmd/dbprobe/explain.go
 cmd/dbprobe/explain_test.go
+cmd/dbprobe/inspect.go
+cmd/dbprobe/root.go
 ```
 
 ---
@@ -44,23 +57,21 @@ cmd/dbprobe/explain_test.go
 
 **Files:**
 - Create: `sdk/adapter/explain.go`
-- Test through application/MySQL tasks; no standalone interface-only test required.
+- Create: `sdk/adapter/explain_test.go`
 
 **Interfaces:**
-- Produces: `adapter.PlanExplainer`, `adapter.ExplainRequest`, `adapter.ExplainResult`.
-
-- [ ] **Step 1: Define the optional contract**
 
 ```go
 type ExplainRequest struct {
-    Statement string
+    Statement string `json:"-"`
 }
 
 type ExplainResult struct {
-    Engine    string
-    Format    string
-    Estimated bool
-    Plan      []byte
+    Engine    string `json:"engine"`
+    Format    string `json:"format"`
+    Estimated bool   `json:"estimated"`
+    Sanitized bool   `json:"sanitized"`
+    Plan      string `json:"plan"`
 }
 
 type PlanExplainer interface {
@@ -68,88 +79,101 @@ type PlanExplainer interface {
 }
 ```
 
-- [ ] **Step 2: Verify existing fake adapter/runtime still compiles without implementing the optional interface**
-
-Run: `go test ./adapters/fake ./sdk/adapter`
-Expected: PASS.
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add -- sdk/adapter/explain.go
-git commit -m "feat: define optional plan explain contract"
-```
+- [x] Define the optional contract without modifying `adapter.Runtime`.
+- [x] Verify the request statement is excluded from JSON serialization.
+- [x] Verify safety metadata is machine-readable on results.
+- [x] Run the dependency-free SDK contract tests and race detector in a local harness.
 
 ---
 
-### Task 2: MySQL conservative plan-only EXPLAIN
+### Task 2: Conservative MySQL plan-only execution envelope
 
 **Files:**
 - Create: `adapters/mysql/explain.go`
 - Create: `adapters/mysql/explain_test.go`
 
-**Interfaces:**
-- Consumes: `adapter.PlanExplainer` contract and the runtime-owned `*sql.DB`.
-- Produces: `(*runtime).ExplainPlan(ctx, request)`.
-
-- [ ] **Step 1: Write failing tests** asserting:
-  - ordinary `SELECT` becomes exactly `EXPLAIN FORMAT=JSON <statement>`;
-  - result is `Engine=mysql`, `Format=mysql-json`, `Estimated=true`;
-  - leading/trailing whitespace is accepted;
-  - empty input is rejected;
-  - `EXPLAIN`, `EXPLAIN ANALYZE`, `WITH`, `UPDATE`, `DELETE`, `INSERT`, `REPLACE`, `CALL`, `SET`, and multi-statement inputs are rejected before database access;
-  - errors do not echo the full rejected SQL.
-
-Example:
-
-```go
-func TestValidateExplainStatementAllowsSingleSelect(t *testing.T) {
-    got, err := validateExplainStatement("  SELECT * FROM orders WHERE id = 1  ")
-    if err != nil { t.Fatal(err) }
-    if got != "SELECT * FROM orders WHERE id = 1" { t.Fatalf("got %q", got) }
-}
-```
-
-- [ ] **Step 2: Run RED**
-
-Run: `go test ./adapters/mysql -run Explain -v`
-Expected: FAIL because validation/plan methods do not exist.
-
-- [ ] **Step 3: Implement minimal validation and plan query**
-
-Rules:
+**Validation contract:**
 
 ```text
 TrimSpace
-must begin with SELECT followed by whitespace/end
-reject any semicolon
+must start with SELECT followed by whitespace/end
+reject empty input
+reject >64 KiB
 reject NUL
-prepend only: EXPLAIN FORMAT=JSON 
+reject semicolon/multi-statement
+reject EXPLAIN / EXPLAIN ANALYZE
+reject WITH for MVP
+reject INSERT/UPDATE/DELETE/REPLACE/CALL/SET
+reject SELECT ... INTO
+reject SELECT ... FOR UPDATE
+reject SELECT ... FOR SHARE
+reject LOCK IN SHARE MODE
+reject := session assignment
 ```
 
-The runtime executes the generated EXPLAIN with `QueryRowContext(...).Scan(&planJSON)`. It never executes the original statement separately.
+**Execution contract:**
 
-- [ ] **Step 4: Run GREEN + race**
-
-Run:
-
-```bash
-go test ./adapters/mysql -run Explain -v
-go test -race ./adapters/mysql -run Explain -v
+```text
+context timeout: 5s
+BeginTx(ReadOnly=true)
+EXPLAIN FORMAT=JSON <validated SELECT>
+Scan JSON plan
+ROLLBACK
+never COMMIT
 ```
 
-Expected: PASS.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add -- adapters/mysql/explain.go adapters/mysql/explain_test.go
-git commit -m "feat: add safe MySQL plan-only explain"
-```
+- [x] Write RED validation/executor tests.
+- [x] Implement conservative validation.
+- [x] Implement read-only transaction execution.
+- [x] Verify `BeginTx(ReadOnly=true)`, query execution, and rollback with a standard-library fake SQL driver.
+- [x] Verify executor errors do not echo statement text.
+- [x] Run local normal and race tests for the dependency-free execution harness.
 
 ---
 
-### Task 3: Engine-agnostic explain application service and renderers
+### Task 3: MySQL plan privacy sanitizer
+
+**Files:**
+- Create: `adapters/mysql/explain_sanitize.go`
+- Create: `adapters/mysql/explain_sanitize_test.go`
+
+**Input:** Raw `EXPLAIN FORMAT=JSON` payload.
+
+**Output:** Sanitized JSON string with structural optimizer metadata only.
+
+Safe string metadata includes:
+
+```text
+schema_name
+table_name
+access_type
+possible_keys
+key
+key_length
+used_key_parts
+used_columns
+using_join_buffer
+query_cost
+read_cost
+eval_cost
+prefix_cost
+sort_cost
+data_read_per_join
+```
+
+Safe numeric/boolean metadata is also explicit allowlist-only, including cardinality/selectivity and structural optimizer flags. Unknown scalar strings, numbers, and booleans are dropped.
+
+- [x] Bound raw plan size to 1 MiB.
+- [x] Require a single top-level JSON object.
+- [x] Reject trailing JSON documents.
+- [x] Drop `attached_condition`, expression strings, constant `ref` arrays, unknown scalar fields, and literal-like values.
+- [x] Preserve safe table/index/cost/cardinality metadata.
+- [x] Reject a plan that contains no safe metadata after sanitization.
+- [x] Run sanitizer normal tests and race detector locally.
+
+---
+
+### Task 4: Engine-agnostic application service and renderers
 
 **Files:**
 - Create: `internal/app/explain/service.go`
@@ -159,12 +183,7 @@ git commit -m "feat: add safe MySQL plan-only explain"
 - Create: `internal/surfaces/terminal/explain.go`
 - Create: `internal/surfaces/terminal/explain_test.go`
 
-**Interfaces:**
-- Produces versioned `dbprobe.explain/v1alpha1` report.
-
-- [ ] **Step 1: Write failing service tests** using a test adapter/runtime implementing `adapter.PlanExplainer`.
-
-Expected report fields:
+**Report:**
 
 ```go
 type Report struct {
@@ -172,42 +191,30 @@ type Report struct {
     Target        adapter.TargetMetadata
     Format        string
     Estimated     bool
-    Plan          []byte
+    Sanitized     bool
+    Plan          string
 }
 ```
 
-Assert missing `query.explain` capability and runtime-without-`PlanExplainer` both fail explicitly.
-
-- [ ] **Step 2: Run RED**
-
-Run: `go test ./internal/app/explain ./internal/surfaces/json ./internal/surfaces/terminal`
-Expected: FAIL because packages do not exist.
-
-- [ ] **Step 3: Implement service and renderers**
-
-JSON emits the versioned report. Terminal prints target/format/estimated status then the plan payload without modifying it.
-
-- [ ] **Step 4: Run GREEN + race**
-
-```bash
-go test ./internal/app/explain ./internal/surfaces/json ./internal/surfaces/terminal
-go test -race ./internal/app/explain ./internal/surfaces/json ./internal/surfaces/terminal
-```
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add -- internal/app/explain internal/surfaces/json/explain* internal/surfaces/terminal/explain*
-git commit -m "feat: add plan explain application surface"
-```
+- [x] Require `query.explain` capability.
+- [x] Require the optional `adapter.PlanExplainer` interface.
+- [x] Reject engine mismatch.
+- [x] Reject empty format/plan.
+- [x] Reject `Estimated=false`.
+- [x] Reject `Sanitized=false`.
+- [x] Keep the original statement out of the report.
+- [x] Expose `sanitized:true` in JSON and terminal output.
+- [x] Run application/renderer dependency-free normal and race tests in the local harness.
 
 ---
 
-### Task 4: CLI `dbprobe explain`
+### Task 5: CLI `dbprobe explain`
 
 **Files:**
+- Create: `cmd/dbprobe/registry.go`
 - Create: `cmd/dbprobe/explain.go`
 - Create: `cmd/dbprobe/explain_test.go`
+- Modify: `cmd/dbprobe/inspect.go`
 - Modify: `cmd/dbprobe/root.go`
 
 **CLI:**
@@ -216,19 +223,39 @@ git commit -m "feat: add plan explain application surface"
 dbprobe explain <target> --statement "SELECT ..." --format=json|text
 ```
 
-- [ ] **Step 1: Write failing CLI tests** for required target/statement, format validation, and successful fake plan-explainer composition test.
-- [ ] **Step 2: Run RED** with `go test ./cmd/dbprobe -run Explain -v`.
-- [ ] **Step 3: Add command** using the same adapter registry composition root as inspect. The command calls the application explain service; it never constructs MySQL SQL itself.
-- [ ] **Step 4: Run CLI tests and existing fake inspect regression tests**.
-- [ ] **Step 5: Add smoke command to Makefile only after full Go 1.25/dependencies are available; do not claim that gate under the current environment.**
-- [ ] **Step 6: Commit** with `feat: add dbprobe explain command`.
+- [x] Centralize CLI adapters in `newAdapterRegistry()` so inspect/explain cannot drift.
+- [x] Validate format and non-empty statement before building/opening the adapter registry.
+- [x] Route CLI through the engine-agnostic application explain service; CLI never constructs MySQL SQL.
+- [x] Add injected-registry command tests for JSON rendering and validation ordering.
+- [x] Require `sanitized:true` in CLI JSON fixtures.
+- [ ] Run full Cobra command tests when the Go/Cobra dependency environment is available.
+- [ ] Add/execute binary smoke coverage when the full Go 1.25 environment is available.
+
+---
 
 ## Acceptance
 
-- `adapter.Runtime` remains unchanged; plan explain is optional.
-- MySQL plan inspection executes only `EXPLAIN FORMAT=JSON SELECT ...`.
-- No `EXPLAIN ANALYZE` string exists in production execution paths.
-- Multi-statement and non-SELECT input is rejected before database access.
-- `dbprobe.explain/v1alpha1` JSON is stable/versioned.
-- Existing inspect functionality remains unchanged.
-- Full Go 1.25 and live MySQL acceptance stay pending until environment quota/Docker access returns.
+Source-level acceptance requires:
+
+- `adapter.Runtime` unchanged and `PlanExplainer` optional.
+- MySQL execution path builds only `EXPLAIN FORMAT=JSON <validated SELECT>`.
+- MySQL execution uses a 5-second context and read-only transaction followed by rollback.
+- No production execution path uses `EXPLAIN ANALYZE`.
+- Multi-statement, non-SELECT, locking, `INTO`, and assignment forms are rejected before database access.
+- Raw plan literals/conditions never cross the adapter boundary.
+- Unknown plan scalar fields are dropped rather than trusted.
+- Adapter results must be `Estimated=true` and `Sanitized=true` before application rendering.
+- `dbprobe.explain/v1alpha1` remains versioned and does not contain the input statement.
+- Existing inspect functionality continues to use the same shared adapter registry.
+
+Environment acceptance remains pending until available:
+
+```text
+Go 1.25 full suite
+Cobra CLI compile/tests
+MySQL 8.0 live EXPLAIN integration
+MySQL 8.4 live EXPLAIN integration
+credential/privacy smoke tests
+```
+
+No merge-ready claim is made before those environment gates run successfully.
