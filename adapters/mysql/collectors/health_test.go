@@ -49,6 +49,7 @@ func TestHealthSnapshotMapsPortableAndMySQLSignals(t *testing.T) {
 	q := fixtureQueryer{rows: [][]string{
 		{"Threads_connected", "12"},
 		{"Threads_running", "3"},
+		{"Uptime", "86400"},
 		{"max_connections", "151"},
 		{"Ignored_future_metric", "99"},
 	}}
@@ -63,8 +64,14 @@ func TestHealthSnapshotMapsPortableAndMySQLSignals(t *testing.T) {
 	assertNumber(t, got, "core.connections.used", 12, signal.ExactnessScraped)
 	assertNumber(t, got, "core.connections.limit", 151, signal.ExactnessScraped)
 	assertNumber(t, got, "mysql.threads.running", 3, signal.ExactnessScraped)
-	if len(got) != 3 {
-		t.Fatalf("observations = %d, want 3", len(got))
+	assertNumber(t, got, "mysql.server.uptime_seconds", 86400, signal.ExactnessScraped)
+	for _, observation := range got {
+		if observation.Key == "mysql.server.uptime_seconds" && observation.Unit != signal.UnitSeconds {
+			t.Fatalf("uptime unit = %q", observation.Unit)
+		}
+	}
+	if len(got) != 4 {
+		t.Fatalf("observations = %d, want 4", len(got))
 	}
 }
 
