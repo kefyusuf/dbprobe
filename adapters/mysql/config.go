@@ -5,6 +5,9 @@ import (
 	"net"
 	"net/url"
 	"strings"
+	"time"
+
+	mysqldriver "github.com/go-sql-driver/mysql"
 )
 
 type Config struct {
@@ -13,9 +16,10 @@ type Config struct {
 	Database    string
 	DisplayName string
 
-	driverDSN string
-	rawTarget string
-	password  string
+	driverConfig *mysqldriver.Config
+	driverDSN    string
+	rawTarget    string
+	password     string
 }
 
 func ParseConfig(raw string) (Config, error) {
@@ -43,28 +47,35 @@ func ParseConfig(raw string) (Config, error) {
 		password, _ = u.User.Password()
 	}
 
-	prefix := ""
-	if user != "" {
-		prefix = user
-		if password != "" {
-			prefix += ":" + password
-		}
-		prefix += "@"
-	}
 	addr := net.JoinHostPort(host, port)
-	driverDSN := prefix + "tcp(" + addr + ")/" + url.PathEscape(dbName)
+	driverCfg := mysqldriver.NewConfig()
+	driverCfg.User = user
+	driverCfg.Passwd = password
+	driverCfg.Net = "tcp"
+	driverCfg.Addr = addr
+	driverCfg.DBName = dbName
+	driverCfg.Timeout = 5 * time.Second
+	driverCfg.ReadTimeout = 10 * time.Second
+	driverCfg.WriteTimeout = 10 * time.Second
+
+	canonical := driverCfg.FormatDSN()
 	if u.RawQuery != "" {
-		driverDSN += "?" + u.RawQuery
+		canonical += "?" + u.RawQuery
+	}
+	parsed, err := mysqldriver.ParseDSN(canonical)
+	if err != nil {
+		return Config{}, fmt.Errorf("invalid MySQL connection options")
 	}
 
 	return Config{
-		Host:        host,
-		Port:        port,
-		Database:    dbName,
-		DisplayName: addr + "/" + dbName,
-		driverDSN:   driverDSN,
-		rawTarget:   raw,
-		password:    password,
+		Host:         host,
+		Port:         port,
+		Database:     dbName,
+		DisplayName:  addr + "/" + dbName,
+		driverConfig: parsed,
+		driverDSN:    parsed.FormatDSN(),
+		rawTarget:    raw,
+		password:     password,
 	}, nil
 }
 
