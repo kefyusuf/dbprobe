@@ -29,6 +29,7 @@ WHERE VARIABLE_NAME IN (
   'Innodb_buffer_pool_reads',
   'Innodb_row_lock_waits',
   'Innodb_log_waits',
+  'Innodb_deadlocks',
   'Com_commit',
   'Com_rollback'
 )`
@@ -80,6 +81,7 @@ func NewHealth(query Queryer, instanceID string) []collector.Collector {
 					"mysql.innodb.buffer_pool.reads",
 					"mysql.innodb.row_lock_waits",
 					"mysql.innodb.log_waits",
+					"mysql.innodb.deadlocks",
 					"mysql.statements.commit",
 					"mysql.statements.rollback",
 				},
@@ -94,6 +96,7 @@ func NewHealth(query Queryer, instanceID string) []collector.Collector {
 				"innodb_buffer_pool_reads":         "mysql.innodb.buffer_pool.reads",
 				"innodb_row_lock_waits":            "mysql.innodb.row_lock_waits",
 				"innodb_log_waits":                 "mysql.innodb.log_waits",
+				"innodb_deadlocks":                 "mysql.innodb.deadlocks",
 				"com_commit":                       "mysql.statements.commit",
 				"com_rollback":                     "mysql.statements.rollback",
 			},
