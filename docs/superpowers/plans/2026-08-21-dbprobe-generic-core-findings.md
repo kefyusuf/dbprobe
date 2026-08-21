@@ -31,10 +31,10 @@
 **Interfaces:**
 - Produces: `corefindings.Rules() []finding.Rule`.
 
-- [ ] Write RED tests for 84%, 85%, 95%, missing limit, zero limit, and object identity.
-- [ ] Implement a rule that reads only `core.connections.used` and `core.connections.limit` for the same object.
-- [ ] `Requires()` returns no engine-specific capabilities.
-- [ ] Run normal and race tests.
+- [x] Write RED tests for 84%, 85%, 95%, missing limit, zero limit, and object identity.
+- [x] Implement a rule that reads only `core.connections.used` and `core.connections.limit` for the same object.
+- [x] `Requires()` returns no engine-specific capabilities.
+- [x] Run focused normal and race tests in a dependency-free local harness.
 
 ---
 
@@ -44,12 +44,12 @@
 - Modify: `internal/app/inspect/service.go`
 - Create: `internal/app/inspect/generic_findings_test.go`
 
-- [ ] Write a test adapter/runtime emitting `core.connections.used=90` and `core.connections.limit=100` with no adapter rules.
-- [ ] Verify RED because inspect currently evaluates only `runtime.Rules()`.
-- [ ] Prepend `corefindings.Rules()` to adapter rules in the inspect service.
-- [ ] Verify the report contains exactly one `core.connection_saturation` warning.
-- [ ] Verify existing fake-adapter inspect behavior remains unchanged.
-- [ ] Run normal and race tests.
+- [x] Write a test adapter/runtime emitting `core.connections.used=90` and `core.connections.limit=100` with no adapter rules.
+- [x] Verify RED because inspect evaluated only `runtime.Rules()`.
+- [x] Prepend `corefindings.Rules()` to adapter rules in the inspect service.
+- [x] Verify the report contains exactly one `core.connection_saturation` warning for a non-MySQL adapter.
+- [x] Run focused inspect/core normal and race tests in a dependency-free local harness.
+- [ ] Run the repository-wide fake-adapter regression suite under the full Go 1.25 environment.
 
 ---
 
@@ -58,8 +58,9 @@
 **Files on `feat/mysql-adapter-mvp`:**
 - Remove the MySQL-local `connectionSaturationRule` from `adapters/mysql/findings/rules.go`/tests after the generic core branch is integrated into its base.
 
-- [ ] Do not perform this removal on the isolated generic-core branch because it does not contain the MySQL adapter.
-- [ ] Record the required follow-up in the MySQL plan/PR until branches are integrated.
+- [x] Keep the duplicate rule intact on the isolated MySQL branch until the generic core branch is integrated; this preserves current standalone behavior.
+- [x] Record the required follow-up in the MySQL PR.
+- [ ] After branch integration, remove the MySQL-local duplicate and run MySQL finding/integration regressions.
 
 ## Acceptance
 
@@ -67,3 +68,4 @@
 - A non-MySQL adapter that emits the same portable signals receives the same deterministic finding without copying the rule.
 - Adapter-native findings still run through the same inspect report.
 - No duplicate generic finding exists after MySQL branch integration.
+- Repository-wide Go 1.25 acceptance remains pending until the environment gate is available.
