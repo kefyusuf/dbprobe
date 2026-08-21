@@ -20,7 +20,10 @@ CREATE TABLE IF NOT EXISTS shop.orders (
     KEY idx_orders_customer (customer_id),
     KEY idx_orders_customer_created (customer_id, created_at),
     KEY idx_orders_status (status),
+    CONSTRAINT chk_orders_total_nonnegative CHECK (total_cents >= 0),
     CONSTRAINT fk_orders_customer FOREIGN KEY (customer_id) REFERENCES shop.customers(id)
+        ON UPDATE CASCADE
+        ON DELETE RESTRICT
 ) ENGINE=InnoDB;
 
 INSERT INTO shop.customers (email, name)
