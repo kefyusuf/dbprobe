@@ -11,16 +11,16 @@ import (
 
 func TestDiscoverCapabilitiesOnlyEnablesSuccessfulProbes(t *testing.T) {
 	allowed := map[string]bool{
-		probePerformanceSchema:  true,
-		probeSessions:           true,
-		probeTransactions:       true,
-		probeQueryDigest:        true,
-		probeIndexes:            true,
-		probeObjects:            true,
-		probeSchemaFingerprint:  true,
-		probeStorageCache:       true,
-		probeExplain:            true,
-		probeInnoDB:             true,
+		probePerformanceSchema: true,
+		probeSessions:          true,
+		probeTransactions:      true,
+		probeQueryDigest:       true,
+		probeIndexes:           true,
+		probeObjects:           true,
+		probeSchemaFingerprint: true,
+		probeStorageCache:      true,
+		probeExplain:           true,
+		probeInnoDB:            true,
 	}
 	caps := discoverCapabilities(context.Background(), true, func(_ context.Context, query string) error {
 		if allowed[query] {
@@ -113,6 +113,8 @@ func TestCapabilityProbesCoverCollectorSources(t *testing.T) {
 			"information_schema.statistics",
 			"information_schema.table_constraints",
 			"information_schema.key_column_usage",
+			"information_schema.check_constraints",
+			"information_schema.referential_constraints",
 		},
 		probeLockWaits: {
 			"performance_schema.data_lock_waits",
