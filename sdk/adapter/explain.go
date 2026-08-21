@@ -3,13 +3,14 @@ package adapter
 import "context"
 
 type ExplainRequest struct {
-	Statement string `json:"statement"`
+	Statement string `json:"-"`
 }
 
 type ExplainResult struct {
 	Engine    string `json:"engine"`
 	Format    string `json:"format"`
 	Estimated bool   `json:"estimated"`
+	Sanitized bool   `json:"sanitized"`
 	Plan      string `json:"plan"`
 }
 
