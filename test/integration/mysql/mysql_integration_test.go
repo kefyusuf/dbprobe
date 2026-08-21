@@ -85,6 +85,7 @@ func TestMySQLAdapterMatrix(t *testing.T) {
 				"workload.query_summary",
 				"schema.indexes",
 				"schema.objects",
+				"mysql.schema_fingerprint",
 				"storage.cache",
 				"query.explain",
 				"mysql.innodb",
@@ -124,6 +125,19 @@ func TestMySQLAdapterMatrix(t *testing.T) {
 			}
 			if !hasObservation(report, "mysql.innodb.history_list_length") {
 				t.Fatal("InnoDB purge/history-list evidence missing from report")
+			}
+			fingerprint, ok := textObservation(report, "mysql.schema.structural_fingerprint")
+			if !ok || !strings.HasPrefix(fingerprint, "v1:sha256:") || len(fingerprint) != len("v1:sha256:")+64 {
+				t.Fatalf("schema fingerprint = %q, present=%v", fingerprint, ok)
+			}
+
+			secondReport, err := service.Run(ctx, tc.uri, 10*time.Millisecond)
+			if err != nil {
+				t.Fatalf("second inspect: %v", err)
+			}
+			secondFingerprint, ok := textObservation(secondReport, "mysql.schema.structural_fingerprint")
+			if !ok || secondFingerprint != fingerprint {
+				t.Fatalf("unstable schema fingerprint: %q vs %q", fingerprint, secondFingerprint)
 			}
 
 			var rendered bytes.Buffer
@@ -179,10 +193,23 @@ func envOr(key, fallback string) string {
 }
 
 func hasObservation(report inspect.Report, key string) bool {
+	_, ok := textObservation(report, key)
+	if ok {
+		return true
+	}
 	for _, observation := range report.Observations {
 		if string(observation.Key) == key {
 			return true
 		}
 	}
 	return false
+}
+
+func textObservation(report inspect.Report, key string) (string, bool) {
+	for _, observation := range report.Observations {
+		if string(observation.Key) == key && observation.Text != nil {
+			return *observation.Text, true
+		}
+	}
+	return "", false
 }
