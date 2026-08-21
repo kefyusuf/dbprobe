@@ -5,10 +5,16 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
 	"github.com/kefyusuf/dbprobe/sdk/adapter"
+)
+
+const (
+	maxExplainStatementBytes = 64 << 10
+	explainTimeout            = 5 * time.Second
 )
 
 type explainExecutor interface {
@@ -39,6 +45,9 @@ func validateExplainStatement(input string) (string, error) {
 	if statement == "" {
 		return "", fmt.Errorf("explain statement is required")
 	}
+	if len(statement) > maxExplainStatementBytes {
+		return "", fmt.Errorf("explain statement exceeds the maximum size")
+	}
 	if strings.ContainsRune(statement, '\x00') || strings.ContainsRune(statement, ';') {
 		return "", fmt.Errorf("explain accepts one SELECT statement only")
 	}
@@ -58,6 +67,9 @@ func validateExplainStatement(input string) (string, error) {
 }
 
 func hasUnsafeExplainClause(statement string) bool {
+	if strings.Contains(statement, ":=") {
+		return true
+	}
 	fields := strings.Fields(strings.ToUpper(statement))
 	for i, field := range fields {
 		switch field {
@@ -92,7 +104,9 @@ func explainWithExecutor(ctx context.Context, executor explainExecutor, request 
 }
 
 func (r *runtime) ExplainPlan(ctx context.Context, request adapter.ExplainRequest) (adapter.ExplainResult, error) {
-	return explainWithExecutor(ctx, sqlExplainExecutor{db: r.db}, request)
+	planCtx, cancel := context.WithTimeout(ctx, explainTimeout)
+	defer cancel()
+	return explainWithExecutor(planCtx, sqlExplainExecutor{db: r.db}, request)
 }
 
 var _ adapter.PlanExplainer = (*runtime)(nil)
