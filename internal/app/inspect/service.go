@@ -78,9 +78,7 @@ func (s *Service) Run(ctx context.Context, rawTarget string, sampleWindow time.D
 		Previous:     []signal.Observation{},
 		Deltas:       collected.Deltas,
 	}
-	rules := corefindings.Rules()
-	rules = append(rules, runtime.Rules()...)
-	for _, rule := range rules {
+	for _, rule := range composeRules(runtime.Rules()) {
 		if !caps.HasAll(rule.Requires()) {
 			continue
 		}
@@ -115,4 +113,33 @@ func (s *Service) Run(ctx context.Context, rawTarget string, sampleWindow time.D
 		report.Warnings = append(report.Warnings, *warning)
 	}
 	return report, nil
+}
+
+func composeRules(adapterRules []finding.Rule) []finding.Rule {
+	coreRules := corefindings.Rules()
+	combined := make([]finding.Rule, 0, len(coreRules)+len(adapterRules))
+	seen := make(map[finding.ID]struct{}, len(coreRules)+len(adapterRules))
+	for _, rule := range coreRules {
+		if rule == nil {
+			continue
+		}
+		id := rule.ID()
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		combined = append(combined, rule)
+	}
+	for _, rule := range adapterRules {
+		if rule == nil {
+			continue
+		}
+		id := rule.ID()
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		combined = append(combined, rule)
+	}
+	return combined
 }
