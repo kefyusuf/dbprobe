@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
@@ -17,6 +18,8 @@ const insertSnapshotSQL = `INSERT OR IGNORE INTO snapshots (
 const insertTrendMetricSQL = `INSERT INTO trend_metrics (
     snapshot_id, metric_kind, signal_key, object_kind, object_id, numeric_value, unit, exactness, rate_per_second, window_seconds
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+
+const snapshotPayloadByIDSQL = `SELECT payload_json FROM snapshots WHERE id = ? LIMIT 1`
 
 const snapshotEnvelopeColumns = `id, target_fingerprint, engine, adapter_id, adapter_version, schema_version, collected_at_ns, payload_json`
 
@@ -102,6 +105,15 @@ func (s *Store) Save(ctx context.Context, snapshot temporal.Snapshot) error {
 		}
 		if inserted > 1 {
 			return fmt.Errorf("SQLite snapshot insert affected %d rows", inserted)
+		}
+		if inserted == 0 {
+			var existingPayload []byte
+			if err := tx.QueryRowContext(ctx, snapshotPayloadByIDSQL, normalized.ID).Scan(&existingPayload); err != nil {
+				return fmt.Errorf("verify existing SQLite snapshot: %w", err)
+			}
+			if !bytes.Equal(existingPayload, payload) {
+				return fmt.Errorf("SQLite snapshot identity collision: existing payload differs")
+			}
 		}
 		if inserted == 1 {
 			for _, trend := range trends {
