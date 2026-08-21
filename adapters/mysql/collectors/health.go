@@ -14,7 +14,7 @@ import (
 
 const snapshotStatusQuery = `SELECT VARIABLE_NAME, VARIABLE_VALUE
 FROM performance_schema.global_status
-WHERE VARIABLE_NAME IN ('Threads_connected', 'Threads_running')
+WHERE VARIABLE_NAME IN ('Threads_connected', 'Threads_running', 'Uptime')
 UNION ALL
 SELECT VARIABLE_NAME, VARIABLE_VALUE
 FROM performance_schema.global_variables
@@ -54,6 +54,7 @@ func NewHealth(query Queryer, instanceID string) []collector.Collector {
 					"core.connections.used",
 					"core.connections.limit",
 					"mysql.threads.running",
+					"mysql.server.uptime_seconds",
 				},
 				Strategy: collector.StrategySnapshot,
 			},
@@ -62,6 +63,7 @@ func NewHealth(query Queryer, instanceID string) []collector.Collector {
 			mapping: map[string]signal.Key{
 				"threads_connected": "core.connections.used",
 				"threads_running":   "mysql.threads.running",
+				"uptime":            "mysql.server.uptime_seconds",
 				"max_connections":   "core.connections.limit",
 			},
 		},
@@ -122,11 +124,15 @@ func (c *statusCollector) Collect(ctx context.Context, req collector.Request) ([
 		if err != nil {
 			return nil, fmt.Errorf("parse %s metric %q: %w", c.descriptor.ID, name, err)
 		}
+		unit := signal.UnitCount
+		if key == "mysql.server.uptime_seconds" {
+			unit = signal.UnitSeconds
+		}
 		observation := signal.NumberObservation(
 			key,
 			object.Ref{Kind: "mysql.instance", ID: c.instanceID},
 			value,
-			signal.UnitCount,
+			unit,
 			c.exactness,
 			signal.SensitivityMetadata,
 			req.CollectedAt,
