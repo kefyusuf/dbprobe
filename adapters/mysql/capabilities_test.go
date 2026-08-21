@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"github.com/kefyusuf/dbprobe/sdk/capability"
 )
 
 func TestDiscoverCapabilitiesOnlyEnablesSuccessfulProbes(t *testing.T) {
@@ -35,12 +37,12 @@ func TestDiscoverCapabilitiesOnlyEnablesSuccessfulProbes(t *testing.T) {
 		"query.explain",
 		"mysql.innodb",
 	} {
-		if !caps.Has(capabilityValue(expected)) {
+		if !caps.Has(capability.Capability(expected)) {
 			t.Fatalf("missing capability %q", expected)
 		}
 	}
 	for _, unexpected := range []string{"locking.wait_graph", "replication.status", "mysql.replication", "mysql.sys_schema"} {
-		if caps.Has(capabilityValue(unexpected)) {
+		if caps.Has(capability.Capability(unexpected)) {
 			t.Fatalf("unexpected capability %q", unexpected)
 		}
 	}
@@ -48,7 +50,7 @@ func TestDiscoverCapabilitiesOnlyEnablesSuccessfulProbes(t *testing.T) {
 
 func TestDiscoverCapabilitiesWithoutPerformanceSchemaDoesNotClaimIt(t *testing.T) {
 	caps := discoverCapabilities(context.Background(), false, func(context.Context, string) error { return nil })
-	if caps.Has(capabilityValue("mysql.performance_schema")) {
+	if caps.Has(capability.Capability("mysql.performance_schema")) {
 		t.Fatal("performance schema capability claimed while disabled")
 	}
 }
