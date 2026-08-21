@@ -165,6 +165,7 @@ func (r *runtime) Collectors() []collector.Collector {
 		mysqlcollectors.NewTransactions(queryer, 50),
 		mysqlcollectors.NewLocks(queryer, r.target.Fingerprint, 100),
 		mysqlcollectors.NewReplication(queryer, 100),
+		mysqlcollectors.NewReplicationLag(queryer, 100),
 	)
 	collectors = append(collectors, mysqlcollectors.NewSchemaRisk(queryer, r.database, 100)...)
 	return collectors
@@ -173,7 +174,8 @@ func (r *runtime) Rules() []finding.Rule {
 	rules := mysqlfindings.Rules()
 	rules = append(rules, mysqlfindings.RiskRules()...)
 	rules = append(rules, mysqlfindings.QueryTimeRules()...)
-	return append(rules, mysqlfindings.LockWaitRules()...)
+	rules = append(rules, mysqlfindings.LockWaitRules()...)
+	return append(rules, mysqlfindings.ReplicationLagRules()...)
 }
 func (r *runtime) SecurityProfile() adapter.SecurityProfile {
 	return r.security
