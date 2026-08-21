@@ -172,7 +172,8 @@ func (r *runtime) Collectors() []collector.Collector {
 func (r *runtime) Rules() []finding.Rule {
 	rules := mysqlfindings.Rules()
 	rules = append(rules, mysqlfindings.RiskRules()...)
-	return append(rules, mysqlfindings.QueryTimeRules()...)
+	rules = append(rules, mysqlfindings.QueryTimeRules()...)
+	return append(rules, mysqlfindings.LockWaitRules()...)
 }
 func (r *runtime) SecurityProfile() adapter.SecurityProfile {
 	return r.security
