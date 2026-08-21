@@ -72,7 +72,10 @@ func (s *Store) Save(ctx context.Context, snapshot temporal.Snapshot) error {
 	if err != nil {
 		return err
 	}
-	trends := extractTrendMetrics(normalized)
+	trends, err := extractTrendMetrics(normalized)
+	if err != nil {
+		return err
+	}
 
 	return s.withConn(ctx, func(conn *sql.Conn) error {
 		tx, err := conn.BeginTx(ctx, nil)
