@@ -7,11 +7,13 @@ import (
 )
 
 const (
-	probePerformanceSchema = "SELECT 1 FROM performance_schema.global_status LIMIT 1"
-	probeSessions          = "SELECT 1 FROM performance_schema.threads LIMIT 1"
-	probeTransactions      = "SELECT COUNT(*) FROM information_schema.innodb_trx"
-	probeQueryDigest       = "SELECT COUNT(*) FROM performance_schema.events_statements_summary_by_digest"
-	probeIndexes           = `SELECT COUNT(*)
+	probePerformanceSchema = `SELECT
+  EXISTS(SELECT 1 FROM performance_schema.global_status LIMIT 1),
+  EXISTS(SELECT 1 FROM performance_schema.global_variables LIMIT 1)`
+	probeSessions     = "SELECT 1 FROM performance_schema.threads LIMIT 1"
+	probeTransactions = "SELECT COUNT(*) FROM information_schema.innodb_trx"
+	probeQueryDigest  = "SELECT COUNT(*) FROM performance_schema.events_statements_summary_by_digest"
+	probeIndexes      = `SELECT COUNT(*)
 FROM information_schema.statistics s
 LEFT JOIN performance_schema.table_io_waits_summary_by_index_usage p
   ON p.OBJECT_SCHEMA = s.TABLE_SCHEMA
