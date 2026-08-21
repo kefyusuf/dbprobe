@@ -1,6 +1,10 @@
 package sqlite
 
-import "fmt"
+import (
+	"context"
+	"database/sql"
+	"fmt"
+)
 
 const sqliteSchemaVersion = 1
 
@@ -39,6 +43,58 @@ func bootstrapStatements() []string {
 		"PRAGMA foreign_keys = ON",
 		"PRAGMA busy_timeout = 5000",
 	}
+}
+
+func prepareConnection(ctx context.Context, conn *sql.Conn) error {
+	if conn == nil {
+		return fmt.Errorf("SQLite connection is required")
+	}
+	for _, statement := range bootstrapStatements() {
+		if _, err := conn.ExecContext(ctx, statement); err != nil {
+			return fmt.Errorf("configure SQLite connection: %w", err)
+		}
+	}
+	return nil
+}
+
+func migrate(ctx context.Context, conn *sql.Conn) error {
+	if conn == nil {
+		return fmt.Errorf("SQLite connection is required")
+	}
+
+	var currentVersion int
+	if err := conn.QueryRowContext(ctx, "PRAGMA user_version").Scan(&currentVersion); err != nil {
+		return fmt.Errorf("read SQLite schema version: %w", err)
+	}
+	statements, err := migrationStatements(currentVersion)
+	if err != nil {
+		return err
+	}
+	if len(statements) == 0 {
+		return nil
+	}
+
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin SQLite migration: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	for _, statement := range statements {
+		if _, err := tx.ExecContext(ctx, statement); err != nil {
+			return fmt.Errorf("apply SQLite migration: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit SQLite migration: %w", err)
+	}
+	committed = true
+	return nil
 }
 
 func migrationStatements(currentVersion int) ([]string, error) {
