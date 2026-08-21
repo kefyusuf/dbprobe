@@ -2,6 +2,7 @@ package collectors
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/kefyusuf/dbprobe/sdk/collector"
@@ -30,11 +31,11 @@ func TestLockCollectorUsesStableTableObjectAndOpaqueEdgeEvidence(t *testing.T) {
 	assertOperationalText(t, got, "mysql.lock_wait.index", "PRIMARY")
 }
 
-func TestReplicationCollectorSeparatesStateAndNeverCollectsErrorMessageText(t *testing.T) {
+func TestReplicationCollectorSeparatesStateAndNeverSelectsErrorMessageText(t *testing.T) {
 	q := &recordingQueryer{rows: [][]string{
-		{"receiver", "default", "ON", "0", ""},
-		{"applier", "default", "OFF", "0", ""},
-		{"worker:1", "default", "OFF", "1062", "Duplicate entry 'secret-value'"},
+		{"receiver", "default", "ON", "0"},
+		{"applier", "default", "OFF", "0"},
+		{"worker:1", "default", "OFF", "1062"},
 	}}
 	got, err := NewReplication(q, 100).Collect(context.Background(), collector.Request{})
 	if err != nil {
@@ -43,10 +44,10 @@ func TestReplicationCollectorSeparatesStateAndNeverCollectsErrorMessageText(t *t
 	assertOperationalBool(t, got, "mysql.replication.receiver_on", "mysql.replication_channel", "default", true)
 	assertOperationalBool(t, got, "mysql.replication.applier_on", "mysql.replication_channel", "default", false)
 	assertOperationalNumber(t, got, "mysql.replication.error_code", "mysql.replication_worker", "default:worker:1", 1062)
-	for _, observation := range got {
-		if observation.Text != nil && *observation.Text == "Duplicate entry 'secret-value'" {
-			t.Fatal("replication error message leaked application data")
-		}
+	assertOperationalText(t, got, "mysql.replication.receiver_state", "ON")
+	assertOperationalText(t, got, "mysql.replication.applier_state", "OFF")
+	if strings.Contains(strings.ToUpper(q.query), "LAST_ERROR_MESSAGE") {
+		t.Fatalf("replication collector selects potentially sensitive error text: %s", q.query)
 	}
 }
 
