@@ -47,14 +47,18 @@ func (q *fingerprintQueryer) QueryContext(_ context.Context, query string, args 
 	q.args = append(q.args, append([]any(nil), args...))
 	group := ""
 	switch {
+	case strings.Contains(query, "information_schema.check_constraints"):
+		group = "checks"
+	case strings.Contains(query, "information_schema.referential_constraints"):
+		group = "referential"
+	case strings.Contains(query, "information_schema.table_constraints"):
+		group = "constraints"
 	case strings.Contains(query, "information_schema.tables"):
 		group = "tables"
 	case strings.Contains(query, "information_schema.columns"):
 		group = "columns"
 	case strings.Contains(query, "information_schema.statistics"):
 		group = "statistics"
-	case strings.Contains(query, "information_schema.table_constraints"):
-		group = "constraints"
 	}
 	if group == q.fail {
 		return nil, errors.New("metadata unavailable")
@@ -73,7 +77,17 @@ func fingerprintFixtureGroups() map[string][][]string {
 			{"shop", "orders", "PRIMARY", "0", "1", "id", "", "", "A", "BTREE", "YES"},
 			{"shop", "orders", "idx_code", "1", "1", "code", "", "8", "A", "BTREE", "YES"},
 		},
-		"constraints": {{"shop", "orders", "PRIMARY", "PRIMARY KEY", "1", "id", "", "", ""}},
+		"constraints": {
+			{"shop", "orders", "PRIMARY", "PRIMARY KEY", "1", "id", "", "", ""},
+			{"shop", "orders", "chk_total", "CHECK", "", "", "", "", ""},
+			{"shop", "orders", "fk_customer", "FOREIGN KEY", "1", "customer_id", "shop", "customers", "id"},
+		},
+		"checks": {
+			{"shop", "orders", "chk_total", "(`total_cents` > 0)"},
+		},
+		"referential": {
+			{"shop", "orders", "fk_customer", "shop", "PRIMARY", "NONE", "RESTRICT", "CASCADE"},
+		},
 	}
 }
 
@@ -104,6 +118,7 @@ func TestSchemaFingerprintStableAcrossRowOrder(t *testing.T) {
 	second := cloneFingerprintGroups(first)
 	second["columns"][0], second["columns"][1] = second["columns"][1], second["columns"][0]
 	second["statistics"][0], second["statistics"][1] = second["statistics"][1], second["statistics"][0]
+	second["constraints"][0], second["constraints"][2] = second["constraints"][2], second["constraints"][0]
 
 	firstFingerprint := collectFingerprintValue(t, &fingerprintQueryer{groups: first})
 	secondFingerprint := collectFingerprintValue(t, &fingerprintQueryer{groups: second})
@@ -123,7 +138,10 @@ func TestSchemaFingerprintChangesForStructuralMetadata(t *testing.T) {
 		func(groups map[string][][]string) { groups["columns"][1][6], groups["columns"][1][7] = "0", "hello" },
 		func(groups map[string][][]string) { groups["statistics"][1][7] = "4" },
 		func(groups map[string][][]string) { groups["statistics"][1][8] = "D" },
-		func(groups map[string][][]string) { groups["constraints"][0][7] = "customers" },
+		func(groups map[string][][]string) { groups["constraints"][2][7] = "accounts" },
+		func(groups map[string][][]string) { groups["checks"][0][3] = "(`total_cents` >= 0)" },
+		func(groups map[string][][]string) { groups["referential"][0][6] = "CASCADE" },
+		func(groups map[string][][]string) { groups["referential"][0][7] = "SET NULL" },
 	}
 	for i, mutate := range mutations {
 		groups := cloneFingerprintGroups(base)
@@ -145,12 +163,21 @@ func TestSchemaFingerprintLengthPrefixAvoidsDelimiterCollision(t *testing.T) {
 }
 
 func TestSchemaFingerprintFailsClosedOnPartialMetadata(t *testing.T) {
-	for _, group := range []string{"tables", "columns", "statistics", "constraints"} {
+	for _, group := range []string{"tables", "columns", "statistics", "constraints", "checks", "referential"} {
 		query := &fingerprintQueryer{groups: fingerprintFixtureGroups(), fail: group}
 		got, err := NewSchemaFingerprint(query, "shop").Collect(context.Background(), collector.Request{})
 		if err == nil || len(got) != 0 {
 			t.Fatalf("group=%s observations=%#v error=%v", group, got, err)
 		}
+	}
+}
+
+func TestSchemaFingerprintRejectsOversizedMetadataField(t *testing.T) {
+	groups := fingerprintFixtureGroups()
+	groups["columns"][0][4] = strings.Repeat("x", maxSchemaFingerprintFieldBytes+1)
+	got, err := NewSchemaFingerprint(&fingerprintQueryer{groups: groups}, "shop").Collect(context.Background(), collector.Request{})
+	if err == nil || len(got) != 0 {
+		t.Fatalf("observations=%#v error=%v", got, err)
 	}
 }
 
@@ -160,7 +187,7 @@ func TestSchemaFingerprintScopesQueriesAndEmitsOnlyOpaqueDigest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(query.calls) != 4 {
+	if len(query.calls) != 6 {
 		t.Fatalf("query calls=%d", len(query.calls))
 	}
 	for i, args := range query.args {
@@ -174,7 +201,7 @@ func TestSchemaFingerprintScopesQueriesAndEmitsOnlyOpaqueDigest(t *testing.T) {
 	if len(got) != 1 || got[0].Key != "mysql.schema.structural_fingerprint" || got[0].Object.Kind != "mysql.schema" || got[0].Object.ID != "shop" || got[0].Exactness != signal.ExactnessScraped || got[0].Sensitivity != signal.SensitivityMetadata || got[0].Text == nil {
 		t.Fatalf("observation=%#v", got)
 	}
-	for _, rawMetadata := range []string{"orders", "varchar(32)", "idx_code"} {
+	for _, rawMetadata := range []string{"orders", "varchar(32)", "idx_code", "total_cents", "CASCADE"} {
 		if strings.Contains(*got[0].Text, rawMetadata) {
 			t.Fatalf("fingerprint leaks raw metadata %q", rawMetadata)
 		}
