@@ -17,7 +17,10 @@ const transactionSQL = `SELECT
   TRX_STATE,
   GREATEST(TIMESTAMPDIFF(SECOND, TRX_STARTED, CURRENT_TIMESTAMP), 0),
   TRX_ROWS_LOCKED,
-  TRX_ROWS_MODIFIED
+  TRX_ROWS_MODIFIED,
+  CASE WHEN TRX_WAIT_STARTED IS NULL THEN 0
+       ELSE GREATEST(TIMESTAMPDIFF(SECOND, TRX_WAIT_STARTED, CURRENT_TIMESTAMP), 0)
+  END AS lock_wait_seconds
 FROM information_schema.innodb_trx
 ORDER BY TRX_STARTED ASC
 LIMIT ?`
@@ -45,6 +48,7 @@ func (c *transactionCollector) Descriptor() collector.Descriptor {
 			"mysql.transaction.age_seconds",
 			"mysql.transaction.rows_locked",
 			"mysql.transaction.rows_modified",
+			"mysql.transaction.lock_wait_seconds",
 			"mysql.transaction.state",
 		},
 		Strategy: collector.StrategySnapshot,
@@ -58,10 +62,10 @@ func (c *transactionCollector) Collect(ctx context.Context, req collector.Reques
 	}
 	defer rows.Close()
 
-	observations := make([]signal.Observation, 0, c.limit*4)
+	observations := make([]signal.Observation, 0, c.limit*5)
 	for rows.Next() {
-		var trxID, threadID, state, ageRaw, lockedRaw, modifiedRaw string
-		if err := rows.Scan(&trxID, &threadID, &state, &ageRaw, &lockedRaw, &modifiedRaw); err != nil {
+		var trxID, threadID, state, ageRaw, lockedRaw, modifiedRaw, waitRaw string
+		if err := rows.Scan(&trxID, &threadID, &state, &ageRaw, &lockedRaw, &modifiedRaw, &waitRaw); err != nil {
 			return nil, fmt.Errorf("scan mysql.transactions: %w", err)
 		}
 		objectID := "thread:" + threadID
@@ -82,6 +86,10 @@ func (c *transactionCollector) Collect(ctx context.Context, req collector.Reques
 		if err != nil {
 			return nil, fmt.Errorf("parse mysql.transaction rows modified: %w", err)
 		}
+		waitSeconds, err := strconv.ParseFloat(waitRaw, 64)
+		if err != nil {
+			return nil, fmt.Errorf("parse mysql.transaction lock wait seconds: %w", err)
+		}
 
 		ageObservation := signal.NumberObservation("mysql.transaction.age_seconds", ref, age, signal.UnitSeconds, signal.ExactnessScraped, signal.SensitivityMetadata, req.CollectedAt)
 		lockedObservation := signal.NumberObservation("mysql.transaction.rows_locked", ref, locked, signal.UnitCount, signal.ExactnessScraped, signal.SensitivityMetadata, req.CollectedAt)
@@ -100,6 +108,11 @@ func (c *transactionCollector) Collect(ctx context.Context, req collector.Reques
 			observation.Source = "information_schema.innodb_trx"
 		}
 		observations = append(observations, ageObservation, lockedObservation, modifiedObservation, stateObservation)
+		if state == "LOCK WAIT" {
+			waitObservation := signal.NumberObservation("mysql.transaction.lock_wait_seconds", ref, waitSeconds, signal.UnitSeconds, signal.ExactnessScraped, signal.SensitivityMetadata, req.CollectedAt)
+			waitObservation.Source = "information_schema.innodb_trx"
+			observations = append(observations, waitObservation)
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate mysql.transactions: %w", err)
