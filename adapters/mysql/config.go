@@ -57,10 +57,10 @@ func ParseConfig(raw string) (Config, error) {
 	safeQuery := url.Values{}
 	for key, values := range u.Query() {
 		if _, allowed := allowedConnectionOptions[key]; !allowed {
-			return Config{}, fmt.Errorf("unsupported MySQL connection option %q", key)
+			return Config{}, fmt.Errorf("unsupported MySQL connection option")
 		}
 		if len(values) != 1 {
-			return Config{}, fmt.Errorf("MySQL connection option %q must be specified once", key)
+			return Config{}, fmt.Errorf("MySQL connection option must be specified once")
 		}
 		safeQuery.Set(key, values[0])
 	}
