@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 	"time"
 
@@ -92,7 +93,10 @@ func TestSnapshotCodecReappliesSensitiveObservationFiltering(t *testing.T) {
 
 func TestTrendRowsDistinguishObservationsAndDeltasDeterministically(t *testing.T) {
 	snapshot := codecSnapshot(t)
-	rows := extractTrendMetrics(snapshot)
+	rows, err := extractTrendMetrics(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(rows) != 3 {
 		t.Fatalf("rows=%#v", rows)
 	}
@@ -110,5 +114,30 @@ func TestTrendRowsDistinguishObservationsAndDeltasDeterministically(t *testing.T
 		if row.SnapshotID != snapshot.ID {
 			t.Fatalf("snapshot id=%q", row.SnapshotID)
 		}
+	}
+}
+
+func TestSnapshotCodecRejectsOversizedPayload(t *testing.T) {
+	snapshot := codecSnapshot(t)
+	large := strings.Repeat("x", maxSnapshotPayloadBytes)
+	snapshot.Observations = append(snapshot.Observations, signal.Observation{
+		Key:         "test.large_metadata",
+		Object:      object.Ref{Kind: "test.object", ID: "large"},
+		Text:        &large,
+		Exactness:   signal.ExactnessScraped,
+		Sensitivity: signal.SensitivityMetadata,
+		CollectedAt: snapshot.CollectedAt,
+	})
+	if _, err := encodeSnapshot(snapshot); err == nil {
+		t.Fatal("expected oversized snapshot payload error")
+	}
+}
+
+func TestTrendExtractionRejectsExcessiveRows(t *testing.T) {
+	snapshot := codecSnapshot(t)
+	snapshot.Observations = nil
+	snapshot.Deltas = make([]signal.Delta, maxTrendMetricRows+1)
+	if _, err := extractTrendMetrics(snapshot); err == nil {
+		t.Fatal("expected trend metric row budget error")
 	}
 }
