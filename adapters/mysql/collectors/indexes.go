@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/kefyusuf/dbprobe/sdk/capability"
 	"github.com/kefyusuf/dbprobe/sdk/collector"
