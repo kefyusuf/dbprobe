@@ -17,6 +17,7 @@ type Report struct {
 	Target        adapter.TargetMetadata `json:"target"`
 	Format        string                 `json:"format"`
 	Estimated     bool                   `json:"estimated"`
+	Sanitized     bool                   `json:"sanitized"`
 	Plan          string                 `json:"plan"`
 }
 
@@ -56,14 +57,15 @@ func (s *Service) Run(ctx context.Context, rawTarget, statement string) (Report,
 	if result.Engine == "" || result.Engine != runtime.Target().Engine {
 		return Report{}, fmt.Errorf("adapter returned an invalid explain engine")
 	}
-	if strings.TrimSpace(result.Format) == "" || strings.TrimSpace(result.Plan) == "" || !result.Estimated {
-		return Report{}, fmt.Errorf("adapter returned an invalid plan-only explain result")
+	if strings.TrimSpace(result.Format) == "" || strings.TrimSpace(result.Plan) == "" || !result.Estimated || !result.Sanitized {
+		return Report{}, fmt.Errorf("adapter returned an invalid safe plan-only explain result")
 	}
 	return Report{
 		SchemaVersion: SchemaVersion,
 		Target:        runtime.Target(),
 		Format:        result.Format,
 		Estimated:     result.Estimated,
+		Sanitized:     result.Sanitized,
 		Plan:          result.Plan,
 	}, nil
 }
