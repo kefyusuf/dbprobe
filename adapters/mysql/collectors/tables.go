@@ -45,7 +45,7 @@ func NewTables(query Queryer, database string, limit int) collector.Collector {
 func (c *tableCollector) Descriptor() collector.Descriptor {
 	return collector.Descriptor{
 		ID:       "mysql.tables",
-		Requires: []capability.Capability{"schema.objects", "mysql.performance_schema"},
+		Requires: []capability.Capability{"schema.objects", "schema.indexes"},
 		Produces: []signal.Key{
 			"mysql.table.estimated_rows",
 			"mysql.table.full_scan_rows",
