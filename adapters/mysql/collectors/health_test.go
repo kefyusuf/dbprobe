@@ -29,16 +29,16 @@ type fixtureRows struct {
 
 func (r *fixtureRows) Next() bool { return r.pos < len(r.rows) }
 func (r *fixtureRows) Scan(dest ...any) error {
-	if r.pos >= len(r.rows) || len(dest) != 2 {
+	if r.pos >= len(r.rows) || len(dest) != len(r.rows[r.pos]) {
 		return fmt.Errorf("invalid fixture scan")
 	}
-	name, ok1 := dest[0].(*string)
-	value, ok2 := dest[1].(*string)
-	if !ok1 || !ok2 {
-		return fmt.Errorf("unexpected scan destinations")
+	for i := range dest {
+		value, ok := dest[i].(*string)
+		if !ok {
+			return fmt.Errorf("unexpected scan destination %d", i)
+		}
+		*value = r.rows[r.pos][i]
 	}
-	*name = r.rows[r.pos][0]
-	*value = r.rows[r.pos][1]
 	r.pos++
 	return nil
 }
@@ -85,14 +85,14 @@ func TestHealthCounterMarksCumulativeSignals(t *testing.T) {
 		t.Fatal(err)
 	}
 	for key, want := range map[signal.Key]float64{
-		"mysql.connections.total":                  1000,
-		"mysql.temp.disk_tables":                   7,
-		"mysql.innodb.buffer_pool.read_requests":   50000,
-		"mysql.innodb.buffer_pool.reads":           50,
-		"mysql.innodb.row_lock_waits":              9,
-		"mysql.innodb.log_waits":                   2,
-		"mysql.statements.commit":                  700,
-		"mysql.statements.rollback":                4,
+		"mysql.connections.total":                1000,
+		"mysql.temp.disk_tables":                 7,
+		"mysql.innodb.buffer_pool.read_requests": 50000,
+		"mysql.innodb.buffer_pool.reads":         50,
+		"mysql.innodb.row_lock_waits":            9,
+		"mysql.innodb.log_waits":                 2,
+		"mysql.statements.commit":                700,
+		"mysql.statements.rollback":              4,
 	} {
 		assertNumber(t, got, key, want, signal.ExactnessCumulative)
 	}
