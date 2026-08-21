@@ -38,6 +38,7 @@ type serverIdentity struct {
 
 type runtime struct {
 	db       *sql.DB
+	database string
 	target   adapter.TargetMetadata
 	caps     capability.Set
 	security adapter.SecurityProfile
@@ -80,9 +81,10 @@ func openRuntime(ctx context.Context, cfg Config) (*runtime, error) {
 	})
 
 	return &runtime{
-		db:     db,
-		target: buildTarget(identity, cfg),
-		caps:   caps,
+		db:       db,
+		database: identity.Database,
+		target:   buildTarget(identity, cfg),
+		caps:     caps,
 		security: adapter.SecurityProfile{
 			ReadOnlyGuaranteed: true,
 			Required: []adapter.Privilege{{
@@ -153,10 +155,14 @@ func fingerprint(serverUUID, database, host, port string) string {
 func (r *runtime) Target() adapter.TargetMetadata { return r.target }
 func (r *runtime) Capabilities() capability.Set   { return r.caps }
 func (r *runtime) Collectors() []collector.Collector {
-	if !r.caps.Has("mysql.performance_schema") {
-		return []collector.Collector{}
-	}
-	return mysqlcollectors.NewHealth(mysqlcollectors.NewSQLQueryer(r.db), r.target.Fingerprint)
+	queryer := mysqlcollectors.NewSQLQueryer(r.db)
+	collectors := mysqlcollectors.NewHealth(queryer, r.target.Fingerprint)
+	collectors = append(collectors,
+		mysqlcollectors.NewQueries(queryer, r.database, 20),
+		mysqlcollectors.NewIndexes(queryer, r.database, 100),
+		mysqlcollectors.NewTables(queryer, r.database, 100),
+	)
+	return collectors
 }
 func (r *runtime) Rules() []finding.Rule { return []finding.Rule{} }
 func (r *runtime) SecurityProfile() adapter.SecurityProfile {
