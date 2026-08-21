@@ -10,7 +10,7 @@ import (
 )
 
 func LockWaitRules() []finding.Rule {
-	return []finding.Rule{lockWaitLongRule{}}
+	return []finding.Rule{lockWaitLongRule{}, blockingChainRule{}}
 }
 
 type lockWaitLongRule struct{}
