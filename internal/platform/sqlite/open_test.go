@@ -55,3 +55,25 @@ func TestOpenRejectsInvalidInputs(t *testing.T) {
 		t.Fatal("expected nil connector factory error")
 	}
 }
+
+func TestOpenRestrictsExistingDatabaseFilePermissions(t *testing.T) {
+	state := newFakeSQLiteState(1)
+	path := filepath.Join(t.TempDir(), "dbprobe.db")
+	if err := os.WriteFile(path, []byte("fixture"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	opened, err := Open(context.Background(), path, func(string) (driver.Connector, error) {
+		return fakeConnector{state: state}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer opened.Close()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("mode=%#o want=%#o", got, 0o600)
+	}
+}
