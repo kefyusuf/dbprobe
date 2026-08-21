@@ -44,11 +44,11 @@ LEFT JOIN performance_schema.replication_applier_status_by_worker w
   ON w.CHANNEL_NAME = c.CHANNEL_NAME
 LEFT JOIN performance_schema.replication_applier_configuration cfg
   ON cfg.CHANNEL_NAME = c.CHANNEL_NAME`
-	probeStorageCache = "SELECT COUNT(*) FROM performance_schema.global_status WHERE VARIABLE_NAME IN ('Innodb_buffer_pool_reads','Innodb_buffer_pool_read_requests')"
-	probeExplain      = "EXPLAIN SELECT 1"
-	probeInnoDB       = "SELECT COUNT(*) FROM information_schema.engines WHERE engine = 'InnoDB' AND support IN ('YES','DEFAULT')"
+	probeStorageCache  = "SELECT COUNT(*) FROM performance_schema.global_status WHERE VARIABLE_NAME IN ('Innodb_buffer_pool_reads','Innodb_buffer_pool_read_requests')"
+	probeExplain       = "EXPLAIN FORMAT=JSON SELECT 1"
+	probeInnoDB        = "SELECT COUNT(*) FROM information_schema.engines WHERE engine = 'InnoDB' AND support IN ('YES','DEFAULT')"
 	probeInnoDBMetrics = "SELECT COUNT FROM INFORMATION_SCHEMA.INNODB_METRICS WHERE NAME = 'trx_rseg_history_len' LIMIT 1"
-	probeSys          = "SELECT 1 FROM sys.version LIMIT 1"
+	probeSys           = "SELECT 1 FROM sys.version LIMIT 1"
 )
 
 type probeFunc func(context.Context, string) error
