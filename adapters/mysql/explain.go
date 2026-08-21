@@ -100,7 +100,11 @@ func explainWithExecutor(ctx context.Context, executor explainExecutor, request 
 	if strings.TrimSpace(plan) == "" {
 		return adapter.ExplainResult{}, fmt.Errorf("MySQL plan explain returned an empty plan")
 	}
-	return adapter.ExplainResult{Engine: "mysql", Format: "mysql-json", Estimated: true, Plan: plan}, nil
+	sanitizedPlan, err := sanitizeMySQLJSONPlan(plan)
+	if err != nil {
+		return adapter.ExplainResult{}, err
+	}
+	return adapter.ExplainResult{Engine: "mysql", Format: "mysql-json-sanitized", Estimated: true, Sanitized: true, Plan: sanitizedPlan}, nil
 }
 
 func (r *runtime) ExplainPlan(ctx context.Context, request adapter.ExplainRequest) (adapter.ExplainResult, error) {
