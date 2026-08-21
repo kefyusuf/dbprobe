@@ -166,6 +166,14 @@ func (c *fakeSQLiteConn) QueryContext(_ context.Context, query string, args []dr
 	if upper == "PRAGMA USER_VERSION" {
 		return &fakeSQLiteRows{columns: []string{"user_version"}, values: [][]driver.Value{{s.userVersion}}}, nil
 	}
+	if strings.HasPrefix(upper, "SELECT PAYLOAD_JSON FROM SNAPSHOTS WHERE ID =") {
+		id := args[0].Value.(string)
+		record, ok := s.snapshots[id]
+		if !ok {
+			return &fakeSQLiteRows{columns: []string{"payload_json"}}, nil
+		}
+		return &fakeSQLiteRows{columns: []string{"payload_json"}, values: [][]driver.Value{{append([]byte(nil), record.payload...)}}}, nil
+	}
 	if strings.Contains(upper, "FROM SNAPSHOTS") && strings.HasPrefix(upper, "SELECT ID, TARGET_FINGERPRINT") {
 		target := args[0].Value.(string)
 		var before *int64
