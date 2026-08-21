@@ -41,7 +41,9 @@ LEFT JOIN performance_schema.replication_applier_status a
 LEFT JOIN performance_schema.replication_applier_status_by_coordinator co
   ON co.CHANNEL_NAME = c.CHANNEL_NAME
 LEFT JOIN performance_schema.replication_applier_status_by_worker w
-  ON w.CHANNEL_NAME = c.CHANNEL_NAME`
+  ON w.CHANNEL_NAME = c.CHANNEL_NAME
+LEFT JOIN performance_schema.replication_applier_configuration cfg
+  ON cfg.CHANNEL_NAME = c.CHANNEL_NAME`
 	probeStorageCache = "SELECT COUNT(*) FROM performance_schema.global_status WHERE VARIABLE_NAME IN ('Innodb_buffer_pool_reads','Innodb_buffer_pool_read_requests')"
 	probeExplain      = "EXPLAIN SELECT 1"
 	probeInnoDB       = "SELECT COUNT(*) FROM information_schema.engines WHERE engine = 'InnoDB' AND support IN ('YES','DEFAULT')"
