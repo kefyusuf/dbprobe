@@ -47,13 +47,14 @@ LEFT JOIN performance_schema.replication_applier_configuration cfg
 	probeStorageCache = "SELECT COUNT(*) FROM performance_schema.global_status WHERE VARIABLE_NAME IN ('Innodb_buffer_pool_reads','Innodb_buffer_pool_read_requests')"
 	probeExplain      = "EXPLAIN SELECT 1"
 	probeInnoDB       = "SELECT COUNT(*) FROM information_schema.engines WHERE engine = 'InnoDB' AND support IN ('YES','DEFAULT')"
+	probeInnoDBMetrics = "SELECT COUNT FROM INFORMATION_SCHEMA.INNODB_METRICS WHERE NAME = 'trx_rseg_history_len' LIMIT 1"
 	probeSys          = "SELECT 1 FROM sys.version LIMIT 1"
 )
 
 type probeFunc func(context.Context, string) error
 
 func discoverCapabilities(ctx context.Context, performanceSchema bool, probe probeFunc) capability.Set {
-	values := make([]capability.Capability, 0, 12)
+	values := make([]capability.Capability, 0, 13)
 	addIf := func(query string, caps ...capability.Capability) {
 		if err := probe(ctx, query); err == nil {
 			values = append(values, caps...)
@@ -81,6 +82,7 @@ func discoverCapabilities(ctx context.Context, performanceSchema bool, probe pro
 	addIf(probeObjects, "schema.objects")
 	addIf(probeExplain, "query.explain")
 	addIf(probeInnoDB, "mysql.innodb")
+	addIf(probeInnoDBMetrics, "mysql.innodb_metrics")
 	addIf(probeSys, "mysql.sys_schema")
 
 	return capability.New(values...)
