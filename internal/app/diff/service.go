@@ -53,7 +53,7 @@ func (s *Service) Run(ctx context.Context, targetFingerprint string, metrics *te
 	if metrics != nil {
 		regressions = temporal.DetectQueryRegressions(*previous, *current, *metrics, temporal.DefaultQueryRegressionPolicy())
 	}
-	events := temporal.DeriveEvents(diffResult, regressions, current.CollectedAt)
+	events := temporal.DeriveEvents(diffResult, regressions, previous.CollectedAt, current.CollectedAt)
 	return Report{
 		SchemaVersion:       SchemaVersion,
 		TargetFingerprint:   targetFingerprint,
