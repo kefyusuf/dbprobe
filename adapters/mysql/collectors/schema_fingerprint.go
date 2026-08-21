@@ -20,6 +20,7 @@ const (
 	maxSchemaFingerprintFieldBytes   = 1 << 20
 	maxSchemaFingerprintRecordBytes  = 4 << 20
 	maxSchemaFingerprintRowsPerGroup = 100000
+	maxSchemaFingerprintTotalBytes   = 64 << 20
 )
 
 const schemaFingerprintTablesSQL = `SELECT
@@ -156,12 +157,14 @@ func (c *schemaFingerprintCollector) Collect(ctx context.Context, req collector.
 	}
 
 	records := make([][]byte, 0, 128)
+	totalBytes := 0
 	for _, group := range groups {
-		groupRecords, err := c.collectGroup(ctx, group)
+		groupRecords, groupBytes, err := c.collectGroup(ctx, group, maxSchemaFingerprintTotalBytes-totalBytes)
 		if err != nil {
 			return nil, err
 		}
 		records = append(records, groupRecords...)
+		totalBytes += groupBytes
 	}
 
 	fingerprint := hashSchemaRecords(records)
@@ -177,17 +180,18 @@ func (c *schemaFingerprintCollector) Collect(ctx context.Context, req collector.
 	return []signal.Observation{observation}, nil
 }
 
-func (c *schemaFingerprintCollector) collectGroup(ctx context.Context, group schemaFingerprintGroup) ([][]byte, error) {
+func (c *schemaFingerprintCollector) collectGroup(ctx context.Context, group schemaFingerprintGroup, remainingBytes int) ([][]byte, int, error) {
 	rows, err := c.query.QueryContext(ctx, group.query, c.database)
 	if err != nil {
-		return nil, fmt.Errorf("collect mysql.schema_fingerprint %s metadata: %w", group.kind, err)
+		return nil, 0, fmt.Errorf("collect mysql.schema_fingerprint %s metadata: %w", group.kind, err)
 	}
 	defer rows.Close()
 
 	records := make([][]byte, 0)
+	usedBytes := 0
 	for rows.Next() {
 		if len(records) >= maxSchemaFingerprintRowsPerGroup {
-			return nil, fmt.Errorf("collect mysql.schema_fingerprint %s metadata: row limit exceeded", group.kind)
+			return nil, 0, fmt.Errorf("collect mysql.schema_fingerprint %s metadata: row limit exceeded", group.kind)
 		}
 		fields := make([]string, group.width)
 		dest := make([]any, group.width)
@@ -195,23 +199,27 @@ func (c *schemaFingerprintCollector) collectGroup(ctx context.Context, group sch
 			dest[i] = &fields[i]
 		}
 		if err := rows.Scan(dest...); err != nil {
-			return nil, fmt.Errorf("scan mysql.schema_fingerprint %s metadata: %w", group.kind, err)
+			return nil, 0, fmt.Errorf("scan mysql.schema_fingerprint %s metadata: %w", group.kind, err)
 		}
 		for _, field := range fields {
 			if len(field) > maxSchemaFingerprintFieldBytes {
-				return nil, fmt.Errorf("collect mysql.schema_fingerprint %s metadata: field too large", group.kind)
+				return nil, 0, fmt.Errorf("collect mysql.schema_fingerprint %s metadata: field too large", group.kind)
 			}
 		}
 		record, err := encodeSchemaRecord(group.kind, fields)
 		if err != nil {
-			return nil, fmt.Errorf("collect mysql.schema_fingerprint %s metadata: %w", group.kind, err)
+			return nil, 0, fmt.Errorf("collect mysql.schema_fingerprint %s metadata: %w", group.kind, err)
+		}
+		if len(record) > remainingBytes-usedBytes {
+			return nil, 0, fmt.Errorf("collect mysql.schema_fingerprint %s metadata: total metadata budget exceeded", group.kind)
 		}
 		records = append(records, record)
+		usedBytes += len(record)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate mysql.schema_fingerprint %s metadata: %w", group.kind, err)
+		return nil, 0, fmt.Errorf("iterate mysql.schema_fingerprint %s metadata: %w", group.kind, err)
 	}
-	return records, nil
+	return records, usedBytes, nil
 }
 
 func encodeSchemaRecord(kind string, fields []string) ([]byte, error) {
