@@ -14,6 +14,9 @@ type metricKind string
 const (
 	metricKindObservation metricKind = "observation"
 	metricKindDelta       metricKind = "delta"
+
+	maxSnapshotPayloadBytes = 16 << 20
+	maxTrendMetricRows      = 100000
 )
 
 type trendMetric struct {
@@ -38,12 +41,18 @@ func encodeSnapshot(snapshot temporal.Snapshot) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("encode SQLite snapshot payload: %w", err)
 	}
+	if len(payload) > maxSnapshotPayloadBytes {
+		return nil, fmt.Errorf("SQLite snapshot payload exceeds %d bytes", maxSnapshotPayloadBytes)
+	}
 	return payload, nil
 }
 
 func decodeSnapshot(payload []byte) (temporal.Snapshot, error) {
 	if len(payload) == 0 {
 		return temporal.Snapshot{}, fmt.Errorf("SQLite snapshot payload is empty")
+	}
+	if len(payload) > maxSnapshotPayloadBytes {
+		return temporal.Snapshot{}, fmt.Errorf("SQLite snapshot payload exceeds %d bytes", maxSnapshotPayloadBytes)
 	}
 	var snapshot temporal.Snapshot
 	if err := json.Unmarshal(payload, &snapshot); err != nil {
@@ -76,8 +85,17 @@ func validateSnapshot(snapshot temporal.Snapshot) (temporal.Snapshot, error) {
 	return normalized, nil
 }
 
-func extractTrendMetrics(snapshot temporal.Snapshot) []trendMetric {
-	rows := make([]trendMetric, 0, len(snapshot.Observations)+len(snapshot.Deltas))
+func extractTrendMetrics(snapshot temporal.Snapshot) ([]trendMetric, error) {
+	numericObservations := 0
+	for _, observation := range snapshot.Observations {
+		if observation.Number != nil {
+			numericObservations++
+		}
+	}
+	if numericObservations+len(snapshot.Deltas) > maxTrendMetricRows {
+		return nil, fmt.Errorf("SQLite trend metric row budget exceeded")
+	}
+	rows := make([]trendMetric, 0, numericObservations+len(snapshot.Deltas))
 	for _, observation := range snapshot.Observations {
 		if observation.Number == nil {
 			continue
@@ -122,5 +140,5 @@ func extractTrendMetrics(snapshot temporal.Snapshot) []trendMetric {
 		}
 		return left.ObjectID < right.ObjectID
 	})
-	return rows
+	return rows, nil
 }
