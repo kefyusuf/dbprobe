@@ -2,7 +2,6 @@ package mysql
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/kefyusuf/dbprobe/sdk/adapter"
 )
@@ -22,6 +21,14 @@ func (mysqlAdapter) Metadata() adapter.Metadata {
 
 func (mysqlAdapter) Match(spec adapter.TargetSpec) bool { return spec.Scheme == "mysql" }
 
-func (mysqlAdapter) Open(context.Context, adapter.TargetSpec, adapter.OpenOptions) (adapter.Runtime, error) {
-	return nil, fmt.Errorf("MySQL runtime is not initialized")
+func (mysqlAdapter) Open(ctx context.Context, spec adapter.TargetSpec, _ adapter.OpenOptions) (adapter.Runtime, error) {
+	cfg, err := ParseConfig(spec.RawURL)
+	if err != nil {
+		return nil, err
+	}
+	runtime, err := openRuntime(ctx, cfg)
+	if err != nil {
+		return nil, sanitizeError(err, cfg)
+	}
+	return runtime, nil
 }
