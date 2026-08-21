@@ -28,11 +28,13 @@ type baseRuntime struct{ caps capability.Set }
 func (r *baseRuntime) Target() adapter.TargetMetadata {
 	return adapter.TargetMetadata{Engine: "testdb", AdapterID: "test", Fingerprint: "fp", DisplayName: "local"}
 }
-func (r *baseRuntime) Capabilities() capability.Set            { return r.caps }
-func (*baseRuntime) Collectors() []collector.Collector        { return nil }
-func (*baseRuntime) Rules() []finding.Rule                    { return nil }
-func (*baseRuntime) SecurityProfile() adapter.SecurityProfile { return adapter.SecurityProfile{ReadOnlyGuaranteed: true} }
-func (*baseRuntime) Close() error                              { return nil }
+func (r *baseRuntime) Capabilities() capability.Set    { return r.caps }
+func (*baseRuntime) Collectors() []collector.Collector { return nil }
+func (*baseRuntime) Rules() []finding.Rule             { return nil }
+func (*baseRuntime) SecurityProfile() adapter.SecurityProfile {
+	return adapter.SecurityProfile{ReadOnlyGuaranteed: true}
+}
+func (*baseRuntime) Close() error { return nil }
 
 type explainRuntime struct {
 	*baseRuntime
