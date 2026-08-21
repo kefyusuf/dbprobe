@@ -7,6 +7,8 @@ import (
 	"strings"
 )
 
+const maxExplainPlanBytes = 1 << 20
+
 var safePlanStringKeys = map[string]struct{}{
 	"access_type":        {},
 	"data_read_per_join": {},
@@ -48,10 +50,17 @@ var safePlanBoolKeys = map[string]struct{}{
 }
 
 func sanitizeMySQLJSONPlan(raw string) (string, error) {
+	if len(raw) > maxExplainPlanBytes {
+		return "", fmt.Errorf("MySQL JSON plan exceeds the maximum size")
+	}
+
 	decoder := json.NewDecoder(strings.NewReader(raw))
 	decoder.UseNumber()
 	var value any
 	if err := decoder.Decode(&value); err != nil {
+		return "", fmt.Errorf("invalid MySQL JSON plan")
+	}
+	if _, ok := value.(map[string]any); !ok {
 		return "", fmt.Errorf("invalid MySQL JSON plan")
 	}
 	var trailing any
@@ -60,7 +69,11 @@ func sanitizeMySQLJSONPlan(raw string) (string, error) {
 	}
 
 	sanitized := sanitizePlanValue("", value)
-	encoded, err := json.Marshal(sanitized)
+	root, ok := sanitized.(map[string]any)
+	if !ok || len(root) == 0 {
+		return "", fmt.Errorf("MySQL JSON plan contains no safe metadata")
+	}
+	encoded, err := json.Marshal(root)
 	if err != nil {
 		return "", fmt.Errorf("sanitize MySQL JSON plan")
 	}
