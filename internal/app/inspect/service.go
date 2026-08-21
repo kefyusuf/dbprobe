@@ -6,6 +6,7 @@ import (
 
 	"github.com/kefyusuf/dbprobe/internal/core/collection"
 	corefindings "github.com/kefyusuf/dbprobe/internal/core/findings"
+	"github.com/kefyusuf/dbprobe/internal/core/temporal"
 	"github.com/kefyusuf/dbprobe/internal/platform/adapterregistry"
 	"github.com/kefyusuf/dbprobe/sdk/adapter"
 	"github.com/kefyusuf/dbprobe/sdk/capability"
@@ -30,10 +31,20 @@ type Report struct {
 type Service struct {
 	registry *adapterregistry.Registry
 	planner  *collection.Planner
+	history  temporal.Store
 }
 
 func New(registry *adapterregistry.Registry, planner *collection.Planner) *Service {
 	return &Service{registry: registry, planner: planner}
+}
+
+func (s *Service) WithHistory(store temporal.Store) *Service {
+	if s == nil {
+		return nil
+	}
+	clone := *s
+	clone.history = store
+	return &clone
 }
 
 func (s *Service) Run(ctx context.Context, rawTarget string, sampleWindow time.Duration) (Report, error) {
@@ -45,6 +56,7 @@ func (s *Service) Run(ctx context.Context, rawTarget string, sampleWindow time.D
 	if err != nil {
 		return Report{}, err
 	}
+	adapterVersion := selected.Metadata().Version
 	runtime, err := selected.Open(ctx, spec, adapter.OpenOptions{})
 	if err != nil {
 		return Report{}, err
@@ -88,7 +100,7 @@ func (s *Service) Run(ctx context.Context, rawTarget string, sampleWindow time.D
 		observations = []signal.Observation{}
 	}
 
-	return Report{
+	report := Report{
 		SchemaVersion: SchemaVersion,
 		CollectedAt:   time.Now().UTC(),
 		Target:        target,
@@ -98,5 +110,9 @@ func (s *Service) Run(ctx context.Context, rawTarget string, sampleWindow time.D
 		Deltas:        deltas,
 		Findings:      findings,
 		Warnings:      warnings,
-	}, nil
+	}
+	if warning := persistHistory(ctx, s.history, report, adapterVersion); warning != nil {
+		report.Warnings = append(report.Warnings, *warning)
+	}
+	return report, nil
 }
