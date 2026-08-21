@@ -42,7 +42,13 @@ test-mysql:
 	trap '$(MYSQL_COMPOSE) down -v' EXIT; \
 	DBPROBE_MYSQL_INTEGRATION=1 DBPROBE_MYSQL80_DSN='$(MYSQL80_DSN)' DBPROBE_MYSQL84_DSN='$(MYSQL84_DSN)' go test ./test/integration/mysql -v; \
 	DBPROBE_TEST_MYSQL_DSN='$(MYSQL80_DSN)' go test ./test/contract -run TestAdapterContract/mysql -v; \
-	DBPROBE_TEST_MYSQL_DSN='$(MYSQL84_DSN)' go test ./test/contract -run TestAdapterContract/mysql -v
+	DBPROBE_TEST_MYSQL_DSN='$(MYSQL84_DSN)' go test ./test/contract -run TestAdapterContract/mysql -v; \
+	go build -o $(BINARY) ./cmd/dbprobe; \
+	$(BINARY) inspect '$(MYSQL84_DSN)' --format=json --sample-window=10ms > /tmp/dbprobe-mysql-report.json; \
+	grep -q '"schema_version": "dbprobe.inspect/v1alpha1"' /tmp/dbprobe-mysql-report.json; \
+	grep -q '"engine": "mysql"' /tmp/dbprobe-mysql-report.json; \
+	if $(BINARY) inspect 'mysql://dbprobe:wrong-secret@127.0.0.1:13307/shop' --format=json --sample-window=10ms >/tmp/dbprobe-mysql-bad.out 2>/tmp/dbprobe-mysql-bad.err; then echo 'bad MySQL credentials unexpectedly succeeded'; exit 1; fi; \
+	if grep -q 'wrong-secret' /tmp/dbprobe-mysql-bad.err; then echo 'MySQL credential leaked in error output'; exit 1; fi
 
 test-mysql-down:
 	$(MYSQL_COMPOSE) down -v
