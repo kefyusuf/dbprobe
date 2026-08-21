@@ -80,7 +80,16 @@ func TestMySQLAdapterMatrix(t *testing.T) {
 			if first.Target().Fingerprint == "" || first.Target().Fingerprint != second.Target().Fingerprint {
 				t.Fatalf("unstable fingerprint: %q vs %q", first.Target().Fingerprint, second.Target().Fingerprint)
 			}
-			for _, required := range []capability.Capability{"mysql.performance_schema", "workload.query_summary", "schema.indexes", "schema.objects", "storage.cache", "query.explain", "mysql.innodb"} {
+			for _, required := range []capability.Capability{
+				"mysql.performance_schema",
+				"workload.query_summary",
+				"schema.indexes",
+				"schema.objects",
+				"storage.cache",
+				"query.explain",
+				"mysql.innodb",
+				"mysql.innodb_metrics",
+			} {
 				if !first.Capabilities().Has(required) {
 					t.Fatalf("missing expected capability %q; got %v", required, first.Capabilities().List())
 				}
@@ -112,6 +121,9 @@ func TestMySQLAdapterMatrix(t *testing.T) {
 			}
 			if !hasObservation(report, "core.query.calls") {
 				t.Fatal("query digest evidence missing after generated workload")
+			}
+			if !hasObservation(report, "mysql.innodb.history_list_length") {
+				t.Fatal("InnoDB purge/history-list evidence missing from report")
 			}
 
 			var rendered bytes.Buffer
