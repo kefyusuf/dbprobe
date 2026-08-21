@@ -29,9 +29,9 @@ type cliExplainRuntime struct{ statement string }
 func (*cliExplainRuntime) Target() adapter.TargetMetadata {
 	return adapter.TargetMetadata{Engine: "testdb", AdapterID: "cli-explain", Fingerprint: "fp", DisplayName: "local"}
 }
-func (*cliExplainRuntime) Capabilities() capability.Set     { return capability.New("query.explain") }
+func (*cliExplainRuntime) Capabilities() capability.Set       { return capability.New("query.explain") }
 func (*cliExplainRuntime) Collectors() []collector.Collector { return nil }
-func (*cliExplainRuntime) Rules() []finding.Rule           { return nil }
+func (*cliExplainRuntime) Rules() []finding.Rule              { return nil }
 func (*cliExplainRuntime) SecurityProfile() adapter.SecurityProfile {
 	return adapter.SecurityProfile{ReadOnlyGuaranteed: true}
 }
