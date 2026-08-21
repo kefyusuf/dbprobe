@@ -18,8 +18,17 @@ type explainExecutor interface {
 type sqlExplainExecutor struct{ db *sql.DB }
 
 func (e sqlExplainExecutor) ExplainJSON(ctx context.Context, query string) (string, error) {
+	tx, err := e.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return "", err
+	}
+
 	var plan string
-	if err := e.db.QueryRowContext(ctx, query).Scan(&plan); err != nil {
+	if err := tx.QueryRowContext(ctx, query).Scan(&plan); err != nil {
+		_ = tx.Rollback()
+		return "", err
+	}
+	if err := tx.Rollback(); err != nil {
 		return "", err
 	}
 	return plan, nil
@@ -42,7 +51,29 @@ func validateExplainStatement(input string) (string, error) {
 			return "", fmt.Errorf("explain accepts SELECT statements only")
 		}
 	}
+	if hasUnsafeExplainClause(statement) {
+		return "", fmt.Errorf("explain statement contains an unsupported clause")
+	}
 	return statement, nil
+}
+
+func hasUnsafeExplainClause(statement string) bool {
+	fields := strings.Fields(strings.ToUpper(statement))
+	for i, field := range fields {
+		switch field {
+		case "INTO":
+			return true
+		case "FOR":
+			if i+1 < len(fields) && (fields[i+1] == "UPDATE" || fields[i+1] == "SHARE") {
+				return true
+			}
+		case "LOCK":
+			if i+3 < len(fields) && fields[i+1] == "IN" && fields[i+2] == "SHARE" && fields[i+3] == "MODE" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func explainWithExecutor(ctx context.Context, executor explainExecutor, request adapter.ExplainRequest) (adapter.ExplainResult, error) {
