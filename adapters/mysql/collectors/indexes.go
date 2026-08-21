@@ -18,6 +18,24 @@ const indexUsageSQL = `SELECT
   s.INDEX_NAME,
   MIN(s.NON_UNIQUE),
   GROUP_CONCAT(COALESCE(s.COLUMN_NAME, s.EXPRESSION, '?') ORDER BY s.SEQ_IN_INDEX SEPARATOR ','),
+  GROUP_CONCAT(
+    CONCAT(
+      LENGTH(CASE
+        WHEN s.COLUMN_NAME IS NOT NULL THEN CONCAT('col:', s.COLUMN_NAME)
+        WHEN s.EXPRESSION IS NOT NULL THEN CONCAT('expr:', s.EXPRESSION)
+        ELSE 'unknown:?'
+      END),
+      ':',
+      CASE
+        WHEN s.COLUMN_NAME IS NOT NULL THEN CONCAT('col:', s.COLUMN_NAME)
+        WHEN s.EXPRESSION IS NOT NULL THEN CONCAT('expr:', s.EXPRESSION)
+        ELSE 'unknown:?'
+      END,
+      ':', COALESCE(CAST(s.SUB_PART AS CHAR), 'full'),
+      ':', COALESCE(s.COLLATION, '?')
+    )
+    ORDER BY s.SEQ_IN_INDEX SEPARATOR ';'
+  ),
   COALESCE(MAX(p.COUNT_READ), 0)
 FROM information_schema.statistics s
 LEFT JOIN performance_schema.table_io_waits_summary_by_index_usage p
@@ -52,6 +70,7 @@ func (c *indexCollector) Descriptor() collector.Descriptor {
 		Produces: []signal.Key{
 			"mysql.index.reads",
 			"mysql.index.columns",
+			"mysql.index.signature",
 			"mysql.index.table",
 			"mysql.index.unique",
 			"mysql.index.primary",
@@ -67,10 +86,10 @@ func (c *indexCollector) Collect(ctx context.Context, req collector.Request) ([]
 	}
 	defer rows.Close()
 
-	observations := make([]signal.Observation, 0, c.limit*5)
+	observations := make([]signal.Observation, 0, c.limit*6)
 	for rows.Next() {
-		var schemaName, tableName, indexName, nonUniqueRaw, columns, readsRaw string
-		if err := rows.Scan(&schemaName, &tableName, &indexName, &nonUniqueRaw, &columns, &readsRaw); err != nil {
+		var schemaName, tableName, indexName, nonUniqueRaw, columns, signature, readsRaw string
+		if err := rows.Scan(&schemaName, &tableName, &indexName, &nonUniqueRaw, &columns, &signature, &readsRaw); err != nil {
 			return nil, fmt.Errorf("scan mysql.indexes: %w", err)
 		}
 		nonUnique, err := strconv.Atoi(nonUniqueRaw)
@@ -88,26 +107,12 @@ func (c *indexCollector) Collect(ctx context.Context, req collector.Request) ([]
 		observations = append(observations, readObservation)
 
 		columnText := columns
+		signatureText := signature
 		tableID := schemaName + "." + tableName
 		observations = append(observations,
-			signal.Observation{
-				Key:         "mysql.index.columns",
-				Object:      ref,
-				Exactness:   signal.ExactnessScraped,
-				Text:        &columnText,
-				CollectedAt: req.CollectedAt,
-				Sensitivity: signal.SensitivityMetadata,
-				Source:      "information_schema.statistics",
-			},
-			signal.Observation{
-				Key:         "mysql.index.table",
-				Object:      ref,
-				Exactness:   signal.ExactnessScraped,
-				Text:        &tableID,
-				CollectedAt: req.CollectedAt,
-				Sensitivity: signal.SensitivityMetadata,
-				Source:      "information_schema.statistics",
-			},
+			signal.Observation{Key: "mysql.index.columns", Object: ref, Exactness: signal.ExactnessScraped, Text: &columnText, CollectedAt: req.CollectedAt, Sensitivity: signal.SensitivityMetadata, Source: "information_schema.statistics"},
+			signal.Observation{Key: "mysql.index.signature", Object: ref, Exactness: signal.ExactnessScraped, Text: &signatureText, CollectedAt: req.CollectedAt, Sensitivity: signal.SensitivityMetadata, Source: "information_schema.statistics"},
+			signal.Observation{Key: "mysql.index.table", Object: ref, Exactness: signal.ExactnessScraped, Text: &tableID, CollectedAt: req.CollectedAt, Sensitivity: signal.SensitivityMetadata, Source: "information_schema.statistics"},
 		)
 
 		unique := nonUnique == 0
@@ -124,13 +129,5 @@ func (c *indexCollector) Collect(ctx context.Context, req collector.Request) ([]
 }
 
 func boolObservation(key signal.Key, ref object.Ref, value bool, at time.Time, source string) signal.Observation {
-	return signal.Observation{
-		Key:         key,
-		Object:      ref,
-		Exactness:   signal.ExactnessScraped,
-		Boolean:     &value,
-		CollectedAt: at,
-		Sensitivity: signal.SensitivityMetadata,
-		Source:      source,
-	}
+	return signal.Observation{Key: key, Object: ref, Exactness: signal.ExactnessScraped, Boolean: &value, CollectedAt: at, Sensitivity: signal.SensitivityMetadata, Source: source}
 }
