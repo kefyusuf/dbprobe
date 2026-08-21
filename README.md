@@ -2,7 +2,7 @@
 
 Database intelligence runtime for deterministic, read-only diagnostics, temporal analysis, CI/agent surfaces, and database-specific intelligence behind modular adapters.
 
-> **v0.1 integration status:** source-level integration is in progress on `integration-v0.1`. Foundation, bounded collection concurrency, generic core findings, temporal intelligence, the MySQL MVP adapter, MySQL schema fingerprinting, safe plan-only EXPLAIN, and a test-only MongoDB semantic probe are integrated. Full Go 1.25 and Docker MySQL 8.0/8.4 acceptance are still pending because the current execution environment has no usable GitHub Actions quota, outbound dependency access, or Docker runtime.
+> **v0.1 integration status:** source-level integration is in progress on `integration-v0.1`. Foundation, bounded collection concurrency, generic core findings, temporal intelligence, driver-independent SQLite baseline persistence, the MySQL MVP adapter, MySQL schema fingerprinting, safe plan-only EXPLAIN, and a test-only MongoDB semantic probe are integrated. Full Go 1.25, concrete SQLite-driver reopen tests, and Docker MySQL 8.0/8.4 acceptance are still pending because the current execution environment has no usable GitHub Actions quota, outbound dependency access, or Docker runtime.
 
 ## Architecture
 
@@ -36,8 +36,30 @@ The adapter SDK intentionally remains **v0.1**. The MongoDB semantic probe demon
 - core rule IDs take precedence over accidental adapter duplicates;
 - versioned inspect JSON: `dbprobe.inspect/v1alpha1`;
 - generic temporal snapshots, diffs, query regressions and bounded-time events;
-- in-memory baseline store behind the generic temporal store port;
+- in-memory and SQLite-backed baseline implementations behind the generic temporal store port;
 - query-text persistence filtering.
+
+### SQLite temporal baseline
+
+`internal/platform/sqlite` is a driver-independent `database/sql` persistence adapter. It does not import a concrete SQLite implementation.
+
+Current source-level persistence includes:
+
+- versioned SQLite migration schema with `PRAGMA user_version`;
+- `foreign_keys=ON` and bounded busy timeout on every acquired connection;
+- atomic snapshot + derived trend-row transactions;
+- versioned JSON snapshot payloads plus normalized observation/delta trend indexes;
+- explicit `observation` vs `delta` metric kinds, preserving sampled rate/window data;
+- snapshot identity-collision and envelope/payload corruption checks;
+- query-text sensitivity re-filtering at the persistence boundary;
+- 16 MiB serialized snapshot limit and 100,000 derived trend-row limit per snapshot;
+- owned-store lifecycle with a single-connection pool and idempotent close;
+- private data-directory defaults (`XDG_DATA_HOME`/macOS Application Support/Windows LOCALAPPDATA) and `dbprobe/dbprobe.db` namespace;
+- best-effort private baseline-file permissions (`0600`) on supported platforms.
+
+The SQL migration/store behavior has also been exercised against SQLite 3.46.1 in the current environment, while Go store behavior and the `inspect -> history -> diff` application flow pass dependency-free normal and race tests.
+
+Concrete driver selection is intentionally isolated at the composition root. `docs/adr/ADR-013-sqlite-driver-selection.md` currently records `modernc.org/sqlite` as the provisional primary candidate and `github.com/ncruces/go-sqlite3` as the benchmark/fallback candidate. A concrete dependency is not pinned until a real Go 1.25 module-resolution and on-disk close/reopen gate can run.
 
 ### MySQL adapter
 
@@ -106,6 +128,7 @@ MySQL URI options are deliberately restricted to diagnostic connection settings 
 - Raw MySQL EXPLAIN JSON is sanitized before crossing the adapter boundary.
 - Missing privileges reduce advertised capabilities instead of pretending visibility is complete.
 - Temporal persistence filters raw query-text sensitivity classes.
+- SQLite snapshot persistence is size-bounded and fails closed on identity/envelope corruption.
 
 ## Non-relational architecture probe
 
@@ -136,7 +159,9 @@ Go 1.25: go mod tidy / gofmt / go vet / go test ./... / go test -race ./...
 Cobra CLI compile and smoke tests
 MySQL 8.0.46 Docker integration
 MySQL 8.4.11 Docker integration
-SQLite persistent baseline store
+Concrete pure-Go SQLite driver module resolution
+SQLite live Go on-disk close/reopen persistence
+Persistent CLI history / dbprobe diff wiring
 ```
 
-See `docs/superpowers/specs/2026-08-21-dbprobe-v0.1-architecture-design.md` and the implementation plans under `docs/superpowers/plans/` for the architecture contract, locked decisions and execution details.
+See `docs/superpowers/specs/2026-08-21-dbprobe-v0.1-architecture-design.md`, `docs/adr/ADR-013-sqlite-driver-selection.md`, and the implementation plans under `docs/superpowers/plans/` for the architecture contract, locked decisions and execution details.
