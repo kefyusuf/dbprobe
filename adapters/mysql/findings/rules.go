@@ -43,7 +43,7 @@ func (r connectionSaturationRule) Evaluate(ctx finding.AnalysisContext) []findin
 	switch {
 	case ratio >= 0.95:
 		severity = "critical"
-	case ratio >= 0.80:
+	case ratio >= 0.85:
 		severity = "warn"
 	default:
 		return nil
@@ -343,7 +343,7 @@ func firstNumber(obs []signal.Observation, key signal.Key, ref *object.Ref) (sig
 		if o.Key != key || o.Number == nil {
 			continue
 		}
-		if ref != nil && (o.Object != *ref) {
+		if ref != nil && o.Object != *ref {
 			continue
 		}
 		return o, *o.Number, true
