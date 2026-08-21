@@ -20,7 +20,7 @@
 - Raw canonical records, defaults, generated expressions, CHECK expressions, or referential metadata are never emitted as observations/findings.
 - A collector failure produces no fabricated fingerprint.
 - Capability discovery must prove every metadata surface used by the collector is readable.
-- Each metadata field is bounded to 1 MiB, each canonical record to 4 MiB, and each group to 100,000 rows.
+- Each metadata field is bounded to 1 MiB, each canonical record to 4 MiB, each group to 100,000 rows, and the full canonical metadata set to 64 MiB.
 - v1 does not include routines, triggers, scheduled events, or raw view definitions; this limitation is documented rather than hidden.
 
 ---
@@ -30,6 +30,7 @@
 ```text
 adapters/mysql/collectors/schema_fingerprint.go
 adapters/mysql/collectors/schema_fingerprint_test.go
+adapters/mysql/collectors/schema_fingerprint_limits_test.go
 adapters/mysql/capabilities.go
 adapters/mysql/capabilities_test.go
 adapters/mysql/runtime.go
@@ -45,6 +46,7 @@ docs/superpowers/plans/2026-08-21-dbprobe-mysql-schema-fingerprint.md
 **Files:**
 - Create: `adapters/mysql/collectors/schema_fingerprint.go`
 - Create: `adapters/mysql/collectors/schema_fingerprint_test.go`
+- Create: `adapters/mysql/collectors/schema_fingerprint_limits_test.go`
 
 **Interfaces:**
 
@@ -82,7 +84,7 @@ sensitivity: metadata
 - [x] Write RED tests proving delimiter-like metadata values cannot create canonical collisions.
 - [x] Implement length-prefixed canonical record encoding and SHA-256 digest.
 - [x] Never emit raw metadata; return only the opaque fingerprint observation.
-- [x] Enforce 1 MiB field, 4 MiB record, and 100,000-row/group limits with fail-closed behavior.
+- [x] Enforce 1 MiB field, 4 MiB record, 100,000-row/group, and 64 MiB total canonical metadata limits with fail-closed behavior.
 - [x] Run focused collector normal tests and race detector locally.
 
 ---
@@ -127,7 +129,7 @@ sensitivity: metadata
 
 - [x] Add an actual CHECK constraint and explicit FK `ON UPDATE`/`ON DELETE` actions to the shared MySQL 8.0/8.4 fixture so extended metadata paths are non-empty.
 - [x] Require `mysql.schema_fingerprint` in both MySQL 8.0.46 and 8.4.11 fixture targets.
-- [x] Assert inspect emits `mysql.schema.structural_fingerprint` matching `v1:sha256:<64 lowercase hex>` shape.
+- [x] Assert inspect emits exactly one `mysql.schema.structural_fingerprint` for `mysql.schema:shop`, with a lowercase `v1:sha256:<64 hex>` value.
 - [x] Add a second inspect assertion requiring fingerprint stability without schema mutation.
 - [x] Keep the dbprobe fixture user read-only; do not mutate schema from the diagnostic user.
 - [ ] Execute the live Docker matrix when Docker/Go 1.25 environment becomes available.
