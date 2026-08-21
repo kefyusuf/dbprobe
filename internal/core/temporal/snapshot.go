@@ -90,9 +90,12 @@ func cloneObservations(values []signal.Observation) []signal.Observation {
 	if values == nil {
 		return []signal.Observation{}
 	}
-	out := make([]signal.Observation, len(values))
-	for i, value := range values {
-		out[i] = cloneObservation(value)
+	out := make([]signal.Observation, 0, len(values))
+	for _, value := range values {
+		if value.Sensitivity == signal.SensitivityQueryText {
+			continue
+		}
+		out = append(out, cloneObservation(value))
 	}
 	return out
 }
@@ -104,12 +107,12 @@ func cloneObservation(value signal.Observation) signal.Observation {
 		out.Number = &n
 	}
 	if value.Text != nil {
-		t := *value.Text
-		out.Text = &t
+		text := *value.Text
+		out.Text = &text
 	}
 	if value.Boolean != nil {
-		b := *value.Boolean
-		out.Boolean = &b
+		boolean := *value.Boolean
+		out.Boolean = &boolean
 	}
 	return out
 }
