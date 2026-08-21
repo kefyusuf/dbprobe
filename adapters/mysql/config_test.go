@@ -7,7 +7,7 @@ import (
 )
 
 func TestParseConfigAcceptsMySQLURIWithoutLeakingPassword(t *testing.T) {
-	cfg, err := ParseConfig("mysql://dbprobe:super-secret@db.example:3307/shop?tls=true")
+	cfg, err := ParseConfig("mysql://dbprobe:super-secret@db.example:3307/shop?tls=true&timeout=3s&readTimeout=7s")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,6 +23,9 @@ func TestParseConfigAcceptsMySQLURIWithoutLeakingPassword(t *testing.T) {
 	if !strings.Contains(cfg.driverDSN, "dbprobe:super-secret@tcp(db.example:3307)/shop") {
 		t.Fatal("driver DSN was not constructed as expected")
 	}
+	if !strings.Contains(cfg.driverDSN, "tls=true") || !strings.Contains(cfg.driverDSN, "timeout=3s") || !strings.Contains(cfg.driverDSN, "readTimeout=7s") {
+		t.Fatalf("safe connection options missing from driver DSN")
+	}
 }
 
 func TestParseConfigUsesDefaultPort(t *testing.T) {
@@ -32,6 +35,23 @@ func TestParseConfigUsesDefaultPort(t *testing.T) {
 	}
 	if cfg.Port != "3306" || cfg.DisplayName != "db.example:3306/shop" {
 		t.Fatalf("unexpected defaults: host=%q port=%q display=%q", cfg.Host, cfg.Port, cfg.DisplayName)
+	}
+}
+
+func TestParseConfigRejectsUnsafeOrUnknownOptionsWithoutEchoingValues(t *testing.T) {
+	for _, raw := range []string{
+		"mysql://user:secret@db.example/shop?multiStatements=true",
+		"mysql://user:secret@db.example/shop?allowAllFiles=true",
+		"mysql://user:secret@db.example/shop?allowCleartextPasswords=true",
+		"mysql://user:secret@db.example/shop?sql_mode=VERY_SECRET_VALUE",
+	} {
+		_, err := ParseConfig(raw)
+		if err == nil {
+			t.Fatalf("expected unsafe option to be rejected: %s", raw)
+		}
+		if strings.Contains(err.Error(), "VERY_SECRET_VALUE") || strings.Contains(err.Error(), "secret") || strings.Contains(err.Error(), raw) {
+			t.Fatalf("option error leaks value or credentials: %q", err)
+		}
 	}
 }
 
