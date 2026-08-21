@@ -37,8 +37,8 @@ func Compare(previous, current Snapshot) (Diff, error) {
 		return Diff{}, fmt.Errorf("cannot compare snapshots from different targets")
 	}
 
-	prev := observationMap(previous.Observations)
-	cur := observationMap(current.Observations)
+	prev, prevAmbiguous := observationMap(previous.Observations)
+	cur, curAmbiguous := observationMap(current.Observations)
 	keys := make(map[string]struct{}, len(prev)+len(cur))
 	for key := range prev {
 		keys[key] = struct{}{}
@@ -55,6 +55,9 @@ func Compare(previous, current Snapshot) (Diff, error) {
 
 	changes := make([]Change, 0)
 	for _, key := range ordered {
+		if prevAmbiguous[key] || curAmbiguous[key] {
+			continue
+		}
 		before, hadBefore := prev[key]
 		after, hasAfter := cur[key]
 		switch {
@@ -85,12 +88,17 @@ func Compare(previous, current Snapshot) (Diff, error) {
 	return Diff{PreviousSnapshotID: previous.ID, CurrentSnapshotID: current.ID, Changes: changes}, nil
 }
 
-func observationMap(values []signal.Observation) map[string]signal.Observation {
+func observationMap(values []signal.Observation) (map[string]signal.Observation, map[string]bool) {
 	out := make(map[string]signal.Observation, len(values))
+	ambiguous := make(map[string]bool)
 	for _, value := range values {
-		out[observationIdentity(value)] = value
+		identity := observationIdentity(value)
+		if _, exists := out[identity]; exists {
+			ambiguous[identity] = true
+		}
+		out[identity] = value
 	}
-	return out
+	return out, ambiguous
 }
 
 func observationIdentity(value signal.Observation) string {
