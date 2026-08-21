@@ -118,3 +118,41 @@ func TestLatestPreviousAndListLoadValidatedPayloads(t *testing.T) {
 		t.Fatalf("list=%#v err=%v", items, err)
 	}
 }
+
+func TestLoadRejectsEnvelopePayloadMismatch(t *testing.T) {
+	state := newFakeSQLiteState(1)
+	db := openFakeSQLiteDB(t, state)
+	defer db.Close()
+	store, err := New(context.Background(), db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := codecSnapshot(t)
+	if err := store.Save(context.Background(), snapshot); err != nil {
+		t.Fatal(err)
+	}
+	state.mu.Lock()
+	record := state.snapshots[snapshot.ID]
+	record.engine = "tampered"
+	state.snapshots[snapshot.ID] = record
+	state.mu.Unlock()
+	if _, err := store.Latest(context.Background(), snapshot.TargetFingerprint); err == nil {
+		t.Fatal("expected envelope mismatch error")
+	}
+}
+
+func TestMissingHistoryReturnsSnapshotNotFound(t *testing.T) {
+	state := newFakeSQLiteState(1)
+	db := openFakeSQLiteDB(t, state)
+	defer db.Close()
+	store, err := New(context.Background(), db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Latest(context.Background(), "missing"); err != temporal.ErrSnapshotNotFound {
+		t.Fatalf("Latest() error=%v; want %v", err, temporal.ErrSnapshotNotFound)
+	}
+	if _, err := store.List(context.Background(), "missing", 10); err != temporal.ErrSnapshotNotFound {
+		t.Fatalf("List() error=%v; want %v", err, temporal.ErrSnapshotNotFound)
+	}
+}
