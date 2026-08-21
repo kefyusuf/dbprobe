@@ -77,8 +77,11 @@ func TestExplainWithExecutorPrependsOnlyPlanOnlyExplain(t *testing.T) {
 	if executor.query != "EXPLAIN FORMAT=JSON SELECT 1" {
 		t.Fatalf("query=%q", executor.query)
 	}
-	if got.Engine != "mysql" || got.Format != "mysql-json" || !got.Estimated || got.Plan != executor.plan {
+	if got.Engine != "mysql" || got.Format != "mysql-json-sanitized" || !got.Estimated || !got.Sanitized {
 		t.Fatalf("result=%#v", got)
+	}
+	if got.Plan != `{"query_block":{"select_id":1}}` {
+		t.Fatalf("sanitized plan=%s", got.Plan)
 	}
 }
 
@@ -116,6 +119,30 @@ func TestSQLExplainExecutorUsesReadOnlyTransactionAndRollsBack(t *testing.T) {
 	}
 	if plan != state.plan || !state.readOnly || !state.rolledBack || state.query != "EXPLAIN FORMAT=JSON SELECT 1" {
 		t.Fatalf("state=%#v plan=%q", state, plan)
+	}
+}
+
+func TestSanitizeMySQLJSONPlanDropsConditionsAndKeepsSafeMetadata(t *testing.T) {
+	raw := `{"query_block":{"select_id":1,"cost_info":{"query_cost":"1.20"},"table":{"table_name":"orders","access_type":"ref","possible_keys":["idx_email"],"key":"idx_email","used_key_parts":["email"],"rows_examined_per_scan":1,"attached_condition":"orders.email = 'secret@example.test'","ref":["const"]}}}`
+	got, err := sanitizeMySQLJSONPlan(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"orders", "idx_email", "query_cost", "rows_examined_per_scan"} {
+		if !strings.Contains(got, required) {
+			t.Fatalf("sanitized plan missing %q: %s", required, got)
+		}
+	}
+	for _, forbidden := range []string{"secret@example.test", "attached_condition", `"ref":`} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("sanitized plan leaked %q: %s", forbidden, got)
+		}
+	}
+}
+
+func TestSanitizeMySQLJSONPlanRejectsInvalidJSON(t *testing.T) {
+	if _, err := sanitizeMySQLJSONPlan(`{"query_block":`); err == nil {
+		t.Fatal("expected invalid JSON error")
 	}
 }
 
