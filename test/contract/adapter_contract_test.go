@@ -2,9 +2,11 @@ package contract_test
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"github.com/kefyusuf/dbprobe/adapters/fake"
+	mysqladapter "github.com/kefyusuf/dbprobe/adapters/mysql"
 	"github.com/kefyusuf/dbprobe/sdk/adapter"
 )
 
@@ -17,6 +19,9 @@ type adapterCase struct {
 func TestAdapterContract(t *testing.T) {
 	cases := []adapterCase{
 		{name: "fake", adapter: fake.New(), target: "fake://local"},
+	}
+	if target := os.Getenv("DBPROBE_TEST_MYSQL_DSN"); target != "" {
+		cases = append(cases, adapterCase{name: "mysql", adapter: mysqladapter.New(), target: target})
 	}
 
 	for _, tc := range cases {
@@ -38,6 +43,7 @@ func TestAdapterContract(t *testing.T) {
 			}
 			second, err := tc.adapter.Open(context.Background(), spec, adapter.OpenOptions{})
 			if err != nil {
+				_ = first.Close()
 				t.Fatal(err)
 			}
 			if first.Target().Fingerprint == "" || first.Target().Fingerprint != second.Target().Fingerprint {
