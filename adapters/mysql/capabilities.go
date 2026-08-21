@@ -7,13 +7,31 @@ import (
 )
 
 const (
-	probeSessions     = "SELECT 1 FROM performance_schema.threads LIMIT 1"
-	probeTransactions = "SELECT COUNT(*) FROM information_schema.innodb_trx"
-	probeQueryDigest  = "SELECT COUNT(*) FROM performance_schema.events_statements_summary_by_digest"
-	probeIndexes      = "SELECT COUNT(*) FROM performance_schema.table_io_waits_summary_by_index_usage"
-	probeObjects      = "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE()"
-	probeLockWaits    = "SELECT COUNT(*) FROM performance_schema.data_lock_waits"
-	probeReplication  = "SELECT COUNT(*) FROM performance_schema.replication_connection_status"
+	probePerformanceSchema = "SELECT 1 FROM performance_schema.global_status LIMIT 1"
+	probeSessions          = "SELECT 1 FROM performance_schema.threads LIMIT 1"
+	probeTransactions      = "SELECT COUNT(*) FROM information_schema.innodb_trx"
+	probeQueryDigest       = "SELECT COUNT(*) FROM performance_schema.events_statements_summary_by_digest"
+	probeIndexes           = `SELECT COUNT(*)
+FROM information_schema.statistics s
+LEFT JOIN performance_schema.table_io_waits_summary_by_index_usage p
+  ON p.OBJECT_SCHEMA = s.TABLE_SCHEMA
+ AND p.OBJECT_NAME = s.TABLE_NAME
+ AND p.INDEX_NAME = s.INDEX_NAME
+WHERE s.TABLE_SCHEMA = DATABASE()`
+	probeObjects = "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE()"
+	probeLockWaits = `SELECT COUNT(*)
+FROM performance_schema.data_lock_waits w
+LEFT JOIN performance_schema.data_locks l
+  ON l.ENGINE = w.ENGINE
+ AND l.ENGINE_LOCK_ID = w.REQUESTING_ENGINE_LOCK_ID`
+	probeReplication = `SELECT COUNT(*)
+FROM performance_schema.replication_connection_status c
+LEFT JOIN performance_schema.replication_applier_status a
+  ON a.CHANNEL_NAME = c.CHANNEL_NAME
+LEFT JOIN performance_schema.replication_applier_status_by_coordinator co
+  ON co.CHANNEL_NAME = c.CHANNEL_NAME
+LEFT JOIN performance_schema.replication_applier_status_by_worker w
+  ON w.CHANNEL_NAME = c.CHANNEL_NAME`
 	probeStorageCache = "SELECT COUNT(*) FROM performance_schema.global_status WHERE VARIABLE_NAME IN ('Innodb_buffer_pool_reads','Innodb_buffer_pool_read_requests')"
 	probeExplain      = "EXPLAIN SELECT 1"
 	probeInnoDB       = "SELECT COUNT(*) FROM information_schema.engines WHERE engine = 'InnoDB' AND support IN ('YES','DEFAULT')"
@@ -30,8 +48,15 @@ func discoverCapabilities(ctx context.Context, performanceSchema bool, probe pro
 		}
 	}
 
+	performanceSchemaReadable := false
 	if performanceSchema {
-		values = append(values, "mysql.performance_schema")
+		if err := probe(ctx, probePerformanceSchema); err == nil {
+			performanceSchemaReadable = true
+			values = append(values, "mysql.performance_schema")
+		}
+	}
+
+	if performanceSchemaReadable {
 		addIf(probeSessions, "activity.sessions")
 		addIf(probeQueryDigest, "workload.query_summary")
 		addIf(probeIndexes, "schema.indexes")
