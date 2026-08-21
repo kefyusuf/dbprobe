@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"net"
 	"net/url"
@@ -126,17 +127,14 @@ func TestMySQLAdapterMatrix(t *testing.T) {
 			if !hasObservation(report, "mysql.innodb.history_list_length") {
 				t.Fatal("InnoDB purge/history-list evidence missing from report")
 			}
-			fingerprint, ok := textObservation(report, "mysql.schema.structural_fingerprint")
-			if !ok || !strings.HasPrefix(fingerprint, "v1:sha256:") || len(fingerprint) != len("v1:sha256:")+64 {
-				t.Fatalf("schema fingerprint = %q, present=%v", fingerprint, ok)
-			}
+			fingerprint := requireSchemaFingerprint(t, report)
 
 			secondReport, err := service.Run(ctx, tc.uri, 10*time.Millisecond)
 			if err != nil {
 				t.Fatalf("second inspect: %v", err)
 			}
-			secondFingerprint, ok := textObservation(secondReport, "mysql.schema.structural_fingerprint")
-			if !ok || secondFingerprint != fingerprint {
+			secondFingerprint := requireSchemaFingerprint(t, secondReport)
+			if secondFingerprint != fingerprint {
 				t.Fatalf("unstable schema fingerprint: %q vs %q", fingerprint, secondFingerprint)
 			}
 
@@ -193,10 +191,6 @@ func envOr(key, fallback string) string {
 }
 
 func hasObservation(report inspect.Report, key string) bool {
-	_, ok := textObservation(report, key)
-	if ok {
-		return true
-	}
 	for _, observation := range report.Observations {
 		if string(observation.Key) == key {
 			return true
@@ -205,11 +199,36 @@ func hasObservation(report inspect.Report, key string) bool {
 	return false
 }
 
-func textObservation(report inspect.Report, key string) (string, bool) {
+func requireSchemaFingerprint(t *testing.T, report inspect.Report) string {
+	t.Helper()
+	count := 0
+	fingerprint := ""
 	for _, observation := range report.Observations {
-		if string(observation.Key) == key && observation.Text != nil {
-			return *observation.Text, true
+		if observation.Key != "mysql.schema.structural_fingerprint" {
+			continue
 		}
+		count++
+		if observation.Object.Kind != "mysql.schema" || observation.Object.ID != "shop" || observation.Text == nil {
+			t.Fatalf("invalid schema fingerprint observation: %#v", observation)
+		}
+		fingerprint = *observation.Text
 	}
-	return "", false
+	if count != 1 {
+		t.Fatalf("schema fingerprint observation count=%d", count)
+	}
+	const prefix = "v1:sha256:"
+	if !strings.HasPrefix(fingerprint, prefix) {
+		t.Fatalf("schema fingerprint=%q", fingerprint)
+	}
+	digest := strings.TrimPrefix(fingerprint, prefix)
+	if len(digest) != 64 {
+		t.Fatalf("schema fingerprint digest length=%d", len(digest))
+	}
+	if _, err := hex.DecodeString(digest); err != nil {
+		t.Fatalf("schema fingerprint is not valid hex: %q", digest)
+	}
+	if digest != strings.ToLower(digest) {
+		t.Fatalf("schema fingerprint digest is not lowercase: %q", digest)
+	}
+	return fingerprint
 }
