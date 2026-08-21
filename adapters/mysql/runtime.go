@@ -11,6 +11,7 @@ import (
 
 	mysqldriver "github.com/go-sql-driver/mysql"
 	mysqlcollectors "github.com/kefyusuf/dbprobe/adapters/mysql/collectors"
+	mysqlfindings "github.com/kefyusuf/dbprobe/adapters/mysql/findings"
 	"github.com/kefyusuf/dbprobe/sdk/adapter"
 	"github.com/kefyusuf/dbprobe/sdk/capability"
 	"github.com/kefyusuf/dbprobe/sdk/collector"
@@ -167,7 +168,7 @@ func (r *runtime) Collectors() []collector.Collector {
 	)
 	return collectors
 }
-func (r *runtime) Rules() []finding.Rule { return []finding.Rule{} }
+func (r *runtime) Rules() []finding.Rule { return mysqlfindings.Rules() }
 func (r *runtime) SecurityProfile() adapter.SecurityProfile {
 	return r.security
 }
