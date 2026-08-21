@@ -11,15 +11,16 @@ import (
 
 func TestDiscoverCapabilitiesOnlyEnablesSuccessfulProbes(t *testing.T) {
 	allowed := map[string]bool{
-		probePerformanceSchema: true,
-		probeSessions:          true,
-		probeTransactions:      true,
-		probeQueryDigest:       true,
-		probeIndexes:           true,
-		probeObjects:           true,
-		probeStorageCache:      true,
-		probeExplain:           true,
-		probeInnoDB:            true,
+		probePerformanceSchema:  true,
+		probeSessions:           true,
+		probeTransactions:       true,
+		probeQueryDigest:        true,
+		probeIndexes:            true,
+		probeObjects:            true,
+		probeSchemaFingerprint:  true,
+		probeStorageCache:       true,
+		probeExplain:            true,
+		probeInnoDB:             true,
 	}
 	caps := discoverCapabilities(context.Background(), true, func(_ context.Context, query string) error {
 		if allowed[query] {
@@ -35,6 +36,7 @@ func TestDiscoverCapabilitiesOnlyEnablesSuccessfulProbes(t *testing.T) {
 		"workload.query_summary",
 		"schema.indexes",
 		"schema.objects",
+		"mysql.schema_fingerprint",
 		"storage.cache",
 		"query.explain",
 		"mysql.innodb",
@@ -43,7 +45,7 @@ func TestDiscoverCapabilitiesOnlyEnablesSuccessfulProbes(t *testing.T) {
 			t.Fatalf("missing capability %q", expected)
 		}
 	}
-	for _, unexpected := range []string{"locking.wait_graph", "replication.status", "mysql.replication", "mysql.sys_schema"} {
+	for _, unexpected := range []string{"locking.wait_graph", "replication.status", "mysql.replication", "mysql.sys_schema", "mysql.innodb_metrics"} {
 		if caps.Has(capability.Capability(unexpected)) {
 			t.Fatalf("unexpected capability %q", unexpected)
 		}
@@ -77,10 +79,25 @@ func TestDiscoverCapabilitiesRequiresPerformanceSchemaReadAccess(t *testing.T) {
 			t.Fatalf("performance-schema-dependent capability %q claimed without read access", unexpected)
 		}
 	}
-	for _, expected := range []string{"activity.transactions", "schema.objects", "query.explain", "mysql.innodb", "mysql.sys_schema"} {
+	for _, expected := range []string{"activity.transactions", "schema.objects", "mysql.schema_fingerprint", "query.explain", "mysql.innodb", "mysql.innodb_metrics", "mysql.sys_schema"} {
 		if !caps.Has(capability.Capability(expected)) {
 			t.Fatalf("independent capability %q should still be discoverable", expected)
 		}
+	}
+}
+
+func TestSchemaFingerprintCapabilityIsIndependentFromSchemaObjects(t *testing.T) {
+	caps := discoverCapabilities(context.Background(), false, func(_ context.Context, query string) error {
+		if query == probeSchemaFingerprint {
+			return errors.New("fingerprint metadata denied")
+		}
+		return nil
+	})
+	if !caps.Has(capability.Capability("schema.objects")) {
+		t.Fatal("schema.objects should remain available")
+	}
+	if caps.Has(capability.Capability("mysql.schema_fingerprint")) {
+		t.Fatal("schema fingerprint capability claimed without full metadata visibility")
 	}
 }
 
@@ -89,6 +106,13 @@ func TestCapabilityProbesCoverCollectorSources(t *testing.T) {
 		probeIndexes: {
 			"information_schema.statistics",
 			"performance_schema.table_io_waits_summary_by_index_usage",
+		},
+		probeSchemaFingerprint: {
+			"information_schema.tables",
+			"information_schema.columns",
+			"information_schema.statistics",
+			"information_schema.table_constraints",
+			"information_schema.key_column_usage",
 		},
 		probeLockWaits: {
 			"performance_schema.data_lock_waits",
@@ -99,6 +123,7 @@ func TestCapabilityProbesCoverCollectorSources(t *testing.T) {
 			"performance_schema.replication_applier_status",
 			"performance_schema.replication_applier_status_by_coordinator",
 			"performance_schema.replication_applier_status_by_worker",
+			"performance_schema.replication_applier_configuration",
 		},
 	} {
 		for _, source := range required {
