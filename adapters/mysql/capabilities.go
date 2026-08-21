@@ -20,7 +20,15 @@ LEFT JOIN performance_schema.table_io_waits_summary_by_index_usage p
  AND p.OBJECT_NAME = s.TABLE_NAME
  AND p.INDEX_NAME = s.INDEX_NAME
 WHERE s.TABLE_SCHEMA = DATABASE()`
-	probeObjects = "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE()"
+	probeObjects = `SELECT COUNT(*)
+FROM information_schema.tables t
+LEFT JOIN information_schema.columns c
+  ON c.TABLE_SCHEMA = t.TABLE_SCHEMA
+ AND c.TABLE_NAME = t.TABLE_NAME
+LEFT JOIN information_schema.statistics s
+  ON s.TABLE_SCHEMA = t.TABLE_SCHEMA
+ AND s.TABLE_NAME = t.TABLE_NAME
+WHERE t.TABLE_SCHEMA = DATABASE()`
 	probeLockWaits = `SELECT COUNT(*)
 FROM performance_schema.data_lock_waits w
 LEFT JOIN performance_schema.data_locks l
