@@ -8,8 +8,9 @@ import (
 	"github.com/kefyusuf/dbprobe/sdk/signal"
 )
 
-func TestDeriveEventsConvertsChangesAndRegressions(t *testing.T) {
-	at := time.Date(2026, 8, 21, 8, 0, 0, 0, time.UTC)
+func TestDeriveEventsUsesBoundedObservationWindow(t *testing.T) {
+	after := time.Date(2026, 8, 21, 8, 0, 0, 0, time.UTC)
+	before := after.Add(time.Minute)
 	ref := object.Ref{Kind: "mysql.query", ID: "shop:abc"}
 	diff := Diff{Changes: []Change{
 		{Kind: ChangeReset, Key: "counter", Object: object.Ref{Kind: "mysql.instance", ID: "db"}},
@@ -17,7 +18,7 @@ func TestDeriveEventsConvertsChangesAndRegressions(t *testing.T) {
 		{Kind: ChangeRemoved, Key: "removed", Object: object.Ref{Kind: "mysql.table", ID: "shop.old"}},
 	}}
 	regressions := []QueryRegression{{Object: ref, PreviousMeanLatencyMS: 10, CurrentMeanLatencyMS: 30, Ratio: 3, AddedLatencyMS: 600, CurrentCalls: 30}}
-	got := DeriveEvents(diff, regressions, at)
+	got := DeriveEvents(diff, regressions, after, before)
 	if len(got) != 4 {
 		t.Fatalf("events=%#v", got)
 	}
@@ -26,9 +27,19 @@ func TestDeriveEventsConvertsChangesAndRegressions(t *testing.T) {
 	assertEvent(t, got, EventObjectDisappeared, "mysql.table", "shop.old", "removed")
 	assertEvent(t, got, EventQueryRegression, "mysql.query", "shop:abc", "")
 	for _, event := range got {
-		if event.CollectedAt != at {
-			t.Fatalf("event time=%v", event.CollectedAt)
+		if !event.ObservedAfter.Equal(after) || !event.ObservedBefore.Equal(before) {
+			t.Fatalf("event window=%v..%v", event.ObservedAfter, event.ObservedBefore)
 		}
+		if event.Confidence <= 0 || event.Confidence > 1 {
+			t.Fatalf("confidence=%v", event.Confidence)
+		}
+	}
+}
+
+func TestDeriveEventsRejectsInvalidWindow(t *testing.T) {
+	now := time.Now().UTC()
+	if got := DeriveEvents(Diff{}, nil, now, now.Add(-time.Second)); len(got) != 0 {
+		t.Fatalf("events=%#v", got)
 	}
 }
 
