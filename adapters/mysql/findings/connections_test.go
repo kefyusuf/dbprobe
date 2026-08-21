@@ -16,7 +16,7 @@ func TestConnectionSaturationWarnsAtEightyFivePercentOnly(t *testing.T) {
 	assertFinding(t, connectionSaturationRule{}.Evaluate(ctx), "core.connection_saturation", "warn")
 
 	ctx.Current[0] = number("core.connections.used", "mysql.instance", "db", 84)
-	if got := connectionSaturationRule{}.Evaluate(ctx); len(got) != 0 {
+	if got := (connectionSaturationRule{}).Evaluate(ctx); len(got) != 0 {
 		t.Fatalf("connection saturation fired below 85%%: %#v", got)
 	}
 }
