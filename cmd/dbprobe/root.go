@@ -8,6 +8,6 @@ func newRootCommand() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	cmd.AddCommand(newInspectCommand())
+	cmd.AddCommand(newInspectCommand(), newExplainCommand())
 	return cmd
 }
