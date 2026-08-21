@@ -167,6 +167,7 @@ func (r *runtime) Collectors() []collector.Collector {
 		mysqlcollectors.NewReplication(queryer, 100),
 		mysqlcollectors.NewReplicationLag(queryer, 100),
 		mysqlcollectors.NewPurgeHistory(queryer, r.target.Fingerprint),
+		mysqlcollectors.NewSchemaFingerprint(queryer, r.database),
 	)
 	collectors = append(collectors, mysqlcollectors.NewSchemaRisk(queryer, r.database, 100)...)
 	return collectors
