@@ -4,12 +4,15 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/kefyusuf/dbprobe/sdk/capability"
 	"github.com/kefyusuf/dbprobe/sdk/collector"
 	"github.com/kefyusuf/dbprobe/sdk/signal"
 )
+
+const defaultMaxConcurrency = 4
 
 type Warning struct {
 	CollectorID string `json:"collector_id"`
@@ -40,12 +43,35 @@ func (RealWaiter) Wait(ctx context.Context, d time.Duration) error {
 }
 
 type Planner struct {
-	waiter Waiter
-	now    func() time.Time
+	waiter         Waiter
+	now            func() time.Time
+	maxConcurrency int
 }
 
 func New(waiter Waiter, now func() time.Time) *Planner {
-	return &Planner{waiter: waiter, now: now}
+	return &Planner{waiter: waiter, now: now, maxConcurrency: defaultMaxConcurrency}
+}
+
+func (p *Planner) WithMaxConcurrency(value int) *Planner {
+	if value < 1 {
+		value = 1
+	}
+	p.maxConcurrency = value
+	return p
+}
+
+type batchJob struct {
+	index      int
+	collector  collector.Collector
+	descriptor collector.Descriptor
+	request    collector.Request
+}
+
+type batchResult struct {
+	index      int
+	descriptor collector.Descriptor
+	observed   []signal.Observation
+	err        error
 }
 
 func (p *Planner) Run(ctx context.Context, caps capability.Set, collectors []collector.Collector, sampleWindow time.Duration) (Result, error) {
@@ -54,81 +80,173 @@ func (p *Planner) Run(ctx context.Context, caps capability.Set, collectors []col
 		Deltas:       []signal.Delta{},
 		Warnings:     []Warning{},
 	}
-	var counters []collector.Collector
-	firstSamples := make(map[string]signal.Observation)
 
-	for _, c := range collectors {
-		desc := c.Descriptor()
-		if !caps.HasAll(desc.Requires) {
+	snapshots := make([]collector.Collector, 0, len(collectors))
+	counters := make([]collector.Collector, 0, len(collectors))
+	for _, candidate := range collectors {
+		descriptor := candidate.Descriptor()
+		if !caps.HasAll(descriptor.Requires) {
 			continue
 		}
-		switch desc.Strategy {
+		switch descriptor.Strategy {
 		case collector.StrategySnapshot:
-			obs, err := c.Collect(ctx, collector.Request{Phase: collector.PhaseSingle, CollectedAt: p.now()})
-			if err != nil {
-				result.Warnings = append(result.Warnings, Warning{CollectorID: desc.ID, Reason: err.Error()})
-				continue
-			}
-			result.Observations = append(result.Observations, obs...)
+			snapshots = append(snapshots, candidate)
 		case collector.StrategyCounter:
-			counters = append(counters, c)
-			obs, err := c.Collect(ctx, collector.Request{Phase: collector.PhaseSampleA, CollectedAt: p.now()})
-			if err != nil {
-				result.Warnings = append(result.Warnings, Warning{CollectorID: desc.ID, Reason: err.Error()})
-				continue
-			}
-			for _, o := range obs {
-				firstSamples[desc.ID+"|"+identity(o)] = o
-			}
+			counters = append(counters, candidate)
 		default:
-			result.Warnings = append(result.Warnings, Warning{CollectorID: desc.ID, Reason: "unsupported collection strategy"})
+			result.Warnings = append(result.Warnings, Warning{CollectorID: descriptor.ID, Reason: "unsupported collection strategy"})
 		}
 	}
 
+	snapshotResults, err := p.runBatch(ctx, p.jobs(snapshots, collector.PhaseSingle))
+	if err != nil {
+		return Result{}, err
+	}
+	for _, collected := range snapshotResults {
+		if collected.err != nil {
+			result.Warnings = append(result.Warnings, Warning{CollectorID: collected.descriptor.ID, Reason: collected.err.Error()})
+			continue
+		}
+		result.Observations = append(result.Observations, collected.observed...)
+	}
+
+	firstSamples := make(map[string]signal.Observation)
 	if len(counters) > 0 {
 		if sampleWindow <= 0 {
 			return Result{}, fmt.Errorf("sample window must be positive for counter collectors")
 		}
+
+		firstResults, err := p.runBatch(ctx, p.jobs(counters, collector.PhaseSampleA))
+		if err != nil {
+			return Result{}, err
+		}
+		for _, collected := range firstResults {
+			if collected.err != nil {
+				result.Warnings = append(result.Warnings, Warning{CollectorID: collected.descriptor.ID, Reason: collected.err.Error()})
+				continue
+			}
+			for _, observation := range collected.observed {
+				firstSamples[collected.descriptor.ID+"|"+identity(observation)] = observation
+			}
+		}
+
 		if err := p.waiter.Wait(ctx, sampleWindow); err != nil {
 			return Result{}, err
 		}
-	}
 
-	for _, c := range counters {
-		desc := c.Descriptor()
-		obs, err := c.Collect(ctx, collector.Request{Phase: collector.PhaseSampleB, CollectedAt: p.now()})
+		secondResults, err := p.runBatch(ctx, p.jobs(counters, collector.PhaseSampleB))
 		if err != nil {
-			result.Warnings = append(result.Warnings, Warning{CollectorID: desc.ID, Reason: err.Error()})
-			continue
+			return Result{}, err
 		}
-		result.Observations = append(result.Observations, obs...)
-		for _, current := range obs {
-			previous, ok := firstSamples[desc.ID+"|"+identity(current)]
-			if !ok {
+		for _, collected := range secondResults {
+			if collected.err != nil {
+				result.Warnings = append(result.Warnings, Warning{CollectorID: collected.descriptor.ID, Reason: collected.err.Error()})
 				continue
 			}
-			a, aOK := previous.Numeric()
-			b, bOK := current.Numeric()
-			if !aOK || !bOK {
-				continue
+			result.Observations = append(result.Observations, collected.observed...)
+			for _, current := range collected.observed {
+				previous, ok := firstSamples[collected.descriptor.ID+"|"+identity(current)]
+				if !ok {
+					continue
+				}
+				a, aOK := previous.Numeric()
+				b, bOK := current.Numeric()
+				if !aOK || !bOK {
+					continue
+				}
+				if b < a {
+					result.Warnings = append(result.Warnings, Warning{CollectorID: collected.descriptor.ID, Reason: fmt.Sprintf("counter reset detected for %s", identity(current))})
+					continue
+				}
+				delta := b - a
+				result.Deltas = append(result.Deltas, signal.Delta{
+					Key:           current.Key,
+					Object:        current.Object,
+					Unit:          current.Unit,
+					Delta:         delta,
+					RatePerSecond: delta / sampleWindow.Seconds(),
+					WindowSeconds: sampleWindow.Seconds(),
+					Exactness:     signal.ExactnessSampled,
+				})
 			}
-			if b < a {
-				result.Warnings = append(result.Warnings, Warning{CollectorID: desc.ID, Reason: fmt.Sprintf("counter reset detected for %s", identity(current))})
-				continue
-			}
-			delta := b - a
-			result.Deltas = append(result.Deltas, signal.Delta{
-				Key:           current.Key,
-				Object:        current.Object,
-				Unit:          current.Unit,
-				Delta:         delta,
-				RatePerSecond: delta / sampleWindow.Seconds(),
-				WindowSeconds: sampleWindow.Seconds(),
-				Exactness:     signal.ExactnessSampled,
-			})
 		}
 	}
 
+	sortResult(&result)
+	return result, nil
+}
+
+func (p *Planner) jobs(values []collector.Collector, phase collector.Phase) []batchJob {
+	jobs := make([]batchJob, 0, len(values))
+	for index, candidate := range values {
+		jobs = append(jobs, batchJob{
+			index:      index,
+			collector:  candidate,
+			descriptor: candidate.Descriptor(),
+			request:    collector.Request{Phase: phase, CollectedAt: p.now()},
+		})
+	}
+	return jobs
+}
+
+func (p *Planner) runBatch(ctx context.Context, jobs []batchJob) ([]batchResult, error) {
+	if len(jobs) == 0 {
+		return []batchResult{}, nil
+	}
+	limit := p.maxConcurrency
+	if limit < 1 {
+		limit = 1
+	}
+	if limit > len(jobs) {
+		limit = len(jobs)
+	}
+
+	jobCh := make(chan batchJob)
+	resultCh := make(chan batchResult, len(jobs))
+	var workers sync.WaitGroup
+	workers.Add(limit)
+	for i := 0; i < limit; i++ {
+		go func() {
+			defer workers.Done()
+			for job := range jobCh {
+				if ctx.Err() != nil {
+					return
+				}
+				observed, err := job.collector.Collect(ctx, job.request)
+				resultCh <- batchResult{index: job.index, descriptor: job.descriptor, observed: observed, err: err}
+			}
+		}()
+	}
+
+	go func() {
+		defer close(jobCh)
+		for _, job := range jobs {
+			if ctx.Err() != nil {
+				return
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case jobCh <- job:
+			}
+		}
+	}()
+
+	workers.Wait()
+	close(resultCh)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	results := make([]batchResult, 0, len(jobs))
+	for collected := range resultCh {
+		results = append(results, collected)
+	}
+	sort.Slice(results, func(i, j int) bool { return results[i].index < results[j].index })
+	return results, nil
+}
+
+func sortResult(result *Result) {
 	sort.Slice(result.Observations, func(i, j int) bool { return identity(result.Observations[i]) < identity(result.Observations[j]) })
 	sort.Slice(result.Deltas, func(i, j int) bool {
 		left := fmt.Sprintf("%s|%s|%s", result.Deltas[i].Key, result.Deltas[i].Object.Kind, result.Deltas[i].Object.ID)
@@ -141,7 +259,6 @@ func (p *Planner) Run(ctx context.Context, caps capability.Set, collectors []col
 		}
 		return result.Warnings[i].CollectorID < result.Warnings[j].CollectorID
 	})
-	return result, nil
 }
 
 func identity(o signal.Observation) string {
