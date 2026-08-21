@@ -19,15 +19,21 @@ const (
 )
 
 type Event struct {
-	Type        EventType  `json:"type"`
-	Object      object.Ref `json:"object"`
-	SignalKey   signal.Key `json:"signal_key,omitempty"`
-	Summary     string     `json:"summary"`
-	CollectedAt time.Time  `json:"collected_at"`
+	Type           EventType  `json:"type"`
+	Object         object.Ref `json:"object"`
+	SignalKey      signal.Key `json:"signal_key,omitempty"`
+	Summary        string     `json:"summary"`
+	Confidence     float64    `json:"confidence"`
+	ObservedAfter  time.Time  `json:"observed_after"`
+	ObservedBefore time.Time  `json:"observed_before"`
 }
 
-func DeriveEvents(diff Diff, regressions []QueryRegression, collectedAt time.Time) []Event {
-	at := collectedAt.UTC()
+func DeriveEvents(diff Diff, regressions []QueryRegression, observedAfter, observedBefore time.Time) []Event {
+	if observedAfter.IsZero() || observedBefore.IsZero() || observedBefore.Before(observedAfter) {
+		return []Event{}
+	}
+	after := observedAfter.UTC()
+	before := observedBefore.UTC()
 	out := make([]Event, 0, len(diff.Changes)+len(regressions))
 	for _, change := range diff.Changes {
 		var typ EventType
@@ -45,14 +51,24 @@ func DeriveEvents(diff Diff, regressions []QueryRegression, collectedAt time.Tim
 		default:
 			continue
 		}
-		out = append(out, Event{Type: typ, Object: change.Object, SignalKey: change.Key, Summary: summary, CollectedAt: at})
+		out = append(out, Event{
+			Type:           typ,
+			Object:         change.Object,
+			SignalKey:      change.Key,
+			Summary:        summary,
+			Confidence:     0.75,
+			ObservedAfter:  after,
+			ObservedBefore: before,
+		})
 	}
 	for _, regression := range regressions {
 		out = append(out, Event{
-			Type:        EventQueryRegression,
-			Object:      regression.Object,
-			Summary:     fmt.Sprintf("Mean query latency increased from %.2fms to %.2fms (%.2fx) in the sampled window.", regression.PreviousMeanLatencyMS, regression.CurrentMeanLatencyMS, regression.Ratio),
-			CollectedAt: at,
+			Type:           EventQueryRegression,
+			Object:         regression.Object,
+			Summary:        fmt.Sprintf("Mean query latency increased from %.2fms to %.2fms (%.2fx) in the sampled window.", regression.PreviousMeanLatencyMS, regression.CurrentMeanLatencyMS, regression.Ratio),
+			Confidence:     0.90,
+			ObservedAfter:  after,
+			ObservedBefore: before,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool {
