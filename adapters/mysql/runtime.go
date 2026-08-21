@@ -10,6 +10,7 @@ import (
 	"time"
 
 	mysqldriver "github.com/go-sql-driver/mysql"
+	mysqlcollectors "github.com/kefyusuf/dbprobe/adapters/mysql/collectors"
 	"github.com/kefyusuf/dbprobe/sdk/adapter"
 	"github.com/kefyusuf/dbprobe/sdk/capability"
 	"github.com/kefyusuf/dbprobe/sdk/collector"
@@ -152,7 +153,10 @@ func fingerprint(serverUUID, database, host, port string) string {
 func (r *runtime) Target() adapter.TargetMetadata { return r.target }
 func (r *runtime) Capabilities() capability.Set   { return r.caps }
 func (r *runtime) Collectors() []collector.Collector {
-	return []collector.Collector{}
+	if !r.caps.Has("mysql.performance_schema") {
+		return []collector.Collector{}
+	}
+	return mysqlcollectors.NewHealth(mysqlcollectors.NewSQLQueryer(r.db), r.target.Fingerprint)
 }
 func (r *runtime) Rules() []finding.Rule { return []finding.Rule{} }
 func (r *runtime) SecurityProfile() adapter.SecurityProfile {
