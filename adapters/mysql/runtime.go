@@ -96,7 +96,7 @@ func openRuntime(ctx context.Context, cfg Config) (*runtime, error) {
 			Recommended: []adapter.Privilege{{
 				Name:   "PROCESS",
 				Scope:  "server",
-				Reason: "improves visibility into sessions on restricted installations",
+				Reason: "improves visibility into sessions and InnoDB diagnostic metrics on restricted installations",
 			}},
 		},
 	}, nil
@@ -166,6 +166,7 @@ func (r *runtime) Collectors() []collector.Collector {
 		mysqlcollectors.NewLocks(queryer, r.target.Fingerprint, 100),
 		mysqlcollectors.NewReplication(queryer, 100),
 		mysqlcollectors.NewReplicationLag(queryer, 100),
+		mysqlcollectors.NewPurgeHistory(queryer, r.target.Fingerprint),
 	)
 	collectors = append(collectors, mysqlcollectors.NewSchemaRisk(queryer, r.database, 100)...)
 	return collectors
@@ -175,7 +176,8 @@ func (r *runtime) Rules() []finding.Rule {
 	rules = append(rules, mysqlfindings.RiskRules()...)
 	rules = append(rules, mysqlfindings.QueryTimeRules()...)
 	rules = append(rules, mysqlfindings.LockWaitRules()...)
-	return append(rules, mysqlfindings.ReplicationLagRules()...)
+	rules = append(rules, mysqlfindings.ReplicationLagRules()...)
+	return append(rules, mysqlfindings.PurgeRules()...)
 }
 func (r *runtime) SecurityProfile() adapter.SecurityProfile {
 	return r.security
