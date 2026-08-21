@@ -10,7 +10,7 @@ type ExplainResult struct {
 	Engine    string `json:"engine"`
 	Format    string `json:"format"`
 	Estimated bool   `json:"estimated"`
-	Plan      []byte `json:"plan"`
+	Plan      string `json:"plan"`
 }
 
 type PlanExplainer interface {
