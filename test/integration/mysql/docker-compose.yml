@@ -1,0 +1,32 @@
+services:
+  mysql80:
+    image: mysql:8.0.46
+    environment:
+      MYSQL_ROOT_PASSWORD: root-pass
+      MYSQL_DATABASE: shop
+    ports:
+      - "13306:3306"
+    volumes:
+      - ./init.sql:/docker-entrypoint-initdb.d/10-dbprobe.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-proot-pass"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+
+  mysql84:
+    image: mysql:8.4.11
+    environment:
+      MYSQL_ROOT_PASSWORD: root-pass
+      MYSQL_DATABASE: shop
+    ports:
+      - "13307:3306"
+    volumes:
+      - ./init.sql:/docker-entrypoint-initdb.d/10-dbprobe.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-proot-pass"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
