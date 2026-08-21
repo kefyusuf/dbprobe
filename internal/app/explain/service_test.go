@@ -28,11 +28,11 @@ type baseRuntime struct{ caps capability.Set }
 func (r *baseRuntime) Target() adapter.TargetMetadata {
 	return adapter.TargetMetadata{Engine: "testdb", AdapterID: "test", Fingerprint: "fp", DisplayName: "local"}
 }
-func (r *baseRuntime) Capabilities() capability.Set           { return r.caps }
-func (*baseRuntime) Collectors() []collector.Collector       { return nil }
-func (*baseRuntime) Rules() []finding.Rule                   { return nil }
+func (r *baseRuntime) Capabilities() capability.Set            { return r.caps }
+func (*baseRuntime) Collectors() []collector.Collector        { return nil }
+func (*baseRuntime) Rules() []finding.Rule                    { return nil }
 func (*baseRuntime) SecurityProfile() adapter.SecurityProfile { return adapter.SecurityProfile{ReadOnlyGuaranteed: true} }
-func (*baseRuntime) Close() error                            { return nil }
+func (*baseRuntime) Close() error                              { return nil }
 
 type explainRuntime struct {
 	*baseRuntime
@@ -45,17 +45,23 @@ func (r *explainRuntime) ExplainPlan(_ context.Context, req adapter.ExplainReque
 	return r.result, nil
 }
 
-func TestServiceBuildsVersionedReportWithoutEchoingStatement(t *testing.T) {
+func TestServiceBuildsVersionedSanitizedReportWithoutEchoingStatement(t *testing.T) {
 	runtime := &explainRuntime{
 		baseRuntime: &baseRuntime{caps: capability.New("query.explain")},
-		result:      adapter.ExplainResult{Engine: "testdb", Format: "test-json", Estimated: true, Plan: `{"plan":1}`},
+		result: adapter.ExplainResult{
+			Engine:    "testdb",
+			Format:    "test-json-sanitized",
+			Estimated: true,
+			Sanitized: true,
+			Plan:      `{"plan":1}`,
+		},
 	}
 	registry, _ := adapterregistry.New(testAdapter{runtime: runtime})
 	report, err := explain.New(registry).Run(context.Background(), "test://local", "SELECT secret_column FROM users")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.SchemaVersion != "dbprobe.explain/v1alpha1" || report.Target.Engine != "testdb" || report.Format != "test-json" || !report.Estimated || report.Plan != `{"plan":1}` {
+	if report.SchemaVersion != "dbprobe.explain/v1alpha1" || report.Target.Engine != "testdb" || report.Format != "test-json-sanitized" || !report.Estimated || !report.Sanitized || report.Plan != `{"plan":1}` {
 		t.Fatalf("report=%#v", report)
 	}
 	if runtime.statement != "SELECT secret_column FROM users" {
@@ -66,7 +72,7 @@ func TestServiceBuildsVersionedReportWithoutEchoingStatement(t *testing.T) {
 	}
 }
 
-func TestServiceRequiresCapabilityAndOptionalInterface(t *testing.T) {
+func TestServiceRequiresCapabilityOptionalInterfaceAndSanitizedResult(t *testing.T) {
 	registry, _ := adapterregistry.New(testAdapter{runtime: &baseRuntime{caps: capability.New()}})
 	if _, err := explain.New(registry).Run(context.Background(), "test://local", "SELECT 1"); err == nil || !strings.Contains(err.Error(), "capability") {
 		t.Fatalf("error=%v", err)
@@ -74,6 +80,21 @@ func TestServiceRequiresCapabilityAndOptionalInterface(t *testing.T) {
 
 	registry, _ = adapterregistry.New(testAdapter{runtime: &baseRuntime{caps: capability.New("query.explain")}})
 	if _, err := explain.New(registry).Run(context.Background(), "test://local", "SELECT 1"); err == nil || !strings.Contains(err.Error(), "contract") {
+		t.Fatalf("error=%v", err)
+	}
+
+	unsafeRuntime := &explainRuntime{
+		baseRuntime: &baseRuntime{caps: capability.New("query.explain")},
+		result: adapter.ExplainResult{
+			Engine:    "testdb",
+			Format:    "test-json",
+			Estimated: true,
+			Sanitized: false,
+			Plan:      `{"attached_condition":"secret=1"}`,
+		},
+	}
+	registry, _ = adapterregistry.New(testAdapter{runtime: unsafeRuntime})
+	if _, err := explain.New(registry).Run(context.Background(), "test://local", "SELECT 1"); err == nil || !strings.Contains(err.Error(), "safe") {
 		t.Fatalf("error=%v", err)
 	}
 }
