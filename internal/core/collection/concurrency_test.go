@@ -65,6 +65,38 @@ func (c *gateCollector) Collect(ctx context.Context, req collector.Request) ([]s
 	}, nil
 }
 
+func TestPlannerDefaultsToFourConcurrentCollectors(t *testing.T) {
+	tracker := &concurrencyTracker{}
+	release := make(chan struct{})
+	collectors := make([]collector.Collector, 0, 6)
+	for i := 0; i < 6; i++ {
+		collectors = append(collectors, &gateCollector{id: string(rune('a' + i)), strategy: collector.StrategySnapshot, tracker: tracker, release: release})
+	}
+	planner := collection.New(&instantWaiter{}, time.Now)
+	done := make(chan error, 1)
+	go func() {
+		_, err := planner.Run(context.Background(), capability.New(), collectors, time.Second)
+		done <- err
+	}()
+
+	deadline := time.After(time.Second)
+	for tracker.maximum.Load() < 4 {
+		select {
+		case <-deadline:
+			t.Fatal("did not reach default concurrency 4")
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+	if got := tracker.maximum.Load(); got != 4 {
+		t.Fatalf("default max concurrency = %d; want 4", got)
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestPlannerRunsSnapshotCollectorsWithConcurrencyBound(t *testing.T) {
 	tracker := &concurrencyTracker{}
 	release := make(chan struct{})
