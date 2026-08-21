@@ -52,6 +52,7 @@ func (c *indexCollector) Descriptor() collector.Descriptor {
 		Produces: []signal.Key{
 			"mysql.index.reads",
 			"mysql.index.columns",
+			"mysql.index.table",
 			"mysql.index.unique",
 			"mysql.index.primary",
 		},
@@ -66,7 +67,7 @@ func (c *indexCollector) Collect(ctx context.Context, req collector.Request) ([]
 	}
 	defer rows.Close()
 
-	observations := make([]signal.Observation, 0, c.limit*4)
+	observations := make([]signal.Observation, 0, c.limit*5)
 	for rows.Next() {
 		var schemaName, tableName, indexName, nonUniqueRaw, columns, readsRaw string
 		if err := rows.Scan(&schemaName, &tableName, &indexName, &nonUniqueRaw, &columns, &readsRaw); err != nil {
@@ -87,15 +88,27 @@ func (c *indexCollector) Collect(ctx context.Context, req collector.Request) ([]
 		observations = append(observations, readObservation)
 
 		columnText := columns
-		observations = append(observations, signal.Observation{
-			Key:         "mysql.index.columns",
-			Object:      ref,
-			Exactness:   signal.ExactnessScraped,
-			Text:        &columnText,
-			CollectedAt: req.CollectedAt,
-			Sensitivity: signal.SensitivityMetadata,
-			Source:      "information_schema.statistics",
-		})
+		tableID := schemaName + "." + tableName
+		observations = append(observations,
+			signal.Observation{
+				Key:         "mysql.index.columns",
+				Object:      ref,
+				Exactness:   signal.ExactnessScraped,
+				Text:        &columnText,
+				CollectedAt: req.CollectedAt,
+				Sensitivity: signal.SensitivityMetadata,
+				Source:      "information_schema.statistics",
+			},
+			signal.Observation{
+				Key:         "mysql.index.table",
+				Object:      ref,
+				Exactness:   signal.ExactnessScraped,
+				Text:        &tableID,
+				CollectedAt: req.CollectedAt,
+				Sensitivity: signal.SensitivityMetadata,
+				Source:      "information_schema.statistics",
+			},
+		)
 
 		unique := nonUnique == 0
 		primary := indexName == "PRIMARY"
