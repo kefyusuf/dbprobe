@@ -10,7 +10,7 @@ import (
 )
 
 func TestTransactionCollectorKeepsEphemeralIdentityOutOfStableObjects(t *testing.T) {
-	q := &recordingQueryer{rows: [][]string{{"123", "77", "RUNNING", "600", "42", "10"}}}
+	q := &recordingQueryer{rows: [][]string{{"123", "77", "RUNNING", "600", "42", "10", "0"}}}
 	got, err := NewTransactions(q, 50).Collect(context.Background(), collector.Request{})
 	if err != nil {
 		t.Fatal(err)
