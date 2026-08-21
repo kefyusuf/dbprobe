@@ -15,7 +15,12 @@ import (
 	"github.com/kefyusuf/dbprobe/sdk/signal"
 )
 
-const schemaFingerprintVersion = "v1"
+const (
+	schemaFingerprintVersion         = "v1"
+	maxSchemaFingerprintFieldBytes   = 1 << 20
+	maxSchemaFingerprintRecordBytes  = 4 << 20
+	maxSchemaFingerprintRowsPerGroup = 100000
+)
 
 const schemaFingerprintTablesSQL = `SELECT
   TABLE_SCHEMA,
@@ -78,6 +83,44 @@ LEFT JOIN information_schema.key_column_usage kcu
 WHERE tc.CONSTRAINT_SCHEMA = ?
 ORDER BY tc.CONSTRAINT_SCHEMA, tc.TABLE_NAME, tc.CONSTRAINT_NAME, kcu.ORDINAL_POSITION`
 
+const schemaFingerprintChecksSQL = `SELECT
+  tc.CONSTRAINT_SCHEMA,
+  tc.TABLE_NAME,
+  tc.CONSTRAINT_NAME,
+  cc.CHECK_CLAUSE
+FROM information_schema.table_constraints tc
+JOIN information_schema.check_constraints cc
+  ON cc.CONSTRAINT_SCHEMA = tc.CONSTRAINT_SCHEMA
+ AND cc.CONSTRAINT_NAME = tc.CONSTRAINT_NAME
+WHERE tc.CONSTRAINT_SCHEMA = ?
+  AND tc.CONSTRAINT_TYPE = 'CHECK'
+ORDER BY tc.CONSTRAINT_SCHEMA, tc.TABLE_NAME, tc.CONSTRAINT_NAME`
+
+const schemaFingerprintReferentialSQL = `SELECT
+  rc.CONSTRAINT_SCHEMA,
+  kcu.TABLE_NAME,
+  rc.CONSTRAINT_NAME,
+  COALESCE(rc.UNIQUE_CONSTRAINT_SCHEMA, ''),
+  COALESCE(rc.UNIQUE_CONSTRAINT_NAME, ''),
+  rc.MATCH_OPTION,
+  rc.UPDATE_RULE,
+  rc.DELETE_RULE
+FROM information_schema.referential_constraints rc
+JOIN information_schema.key_column_usage kcu
+  ON kcu.CONSTRAINT_SCHEMA = rc.CONSTRAINT_SCHEMA
+ AND kcu.CONSTRAINT_NAME = rc.CONSTRAINT_NAME
+WHERE rc.CONSTRAINT_SCHEMA = ?
+GROUP BY
+  rc.CONSTRAINT_SCHEMA,
+  kcu.TABLE_NAME,
+  rc.CONSTRAINT_NAME,
+  rc.UNIQUE_CONSTRAINT_SCHEMA,
+  rc.UNIQUE_CONSTRAINT_NAME,
+  rc.MATCH_OPTION,
+  rc.UPDATE_RULE,
+  rc.DELETE_RULE
+ORDER BY rc.CONSTRAINT_SCHEMA, kcu.TABLE_NAME, rc.CONSTRAINT_NAME`
+
 type schemaFingerprintCollector struct {
 	query    Queryer
 	database string
@@ -108,6 +151,8 @@ func (c *schemaFingerprintCollector) Collect(ctx context.Context, req collector.
 		{kind: "column", query: schemaFingerprintColumnsSQL, width: 11},
 		{kind: "index", query: schemaFingerprintIndexesSQL, width: 11},
 		{kind: "constraint", query: schemaFingerprintConstraintsSQL, width: 9},
+		{kind: "check", query: schemaFingerprintChecksSQL, width: 4},
+		{kind: "referential", query: schemaFingerprintReferentialSQL, width: 8},
 	}
 
 	records := make([][]byte, 0, 128)
@@ -141,6 +186,9 @@ func (c *schemaFingerprintCollector) collectGroup(ctx context.Context, group sch
 
 	records := make([][]byte, 0)
 	for rows.Next() {
+		if len(records) >= maxSchemaFingerprintRowsPerGroup {
+			return nil, fmt.Errorf("collect mysql.schema_fingerprint %s metadata: row limit exceeded", group.kind)
+		}
 		fields := make([]string, group.width)
 		dest := make([]any, group.width)
 		for i := range fields {
@@ -149,7 +197,16 @@ func (c *schemaFingerprintCollector) collectGroup(ctx context.Context, group sch
 		if err := rows.Scan(dest...); err != nil {
 			return nil, fmt.Errorf("scan mysql.schema_fingerprint %s metadata: %w", group.kind, err)
 		}
-		records = append(records, encodeSchemaRecord(group.kind, fields))
+		for _, field := range fields {
+			if len(field) > maxSchemaFingerprintFieldBytes {
+				return nil, fmt.Errorf("collect mysql.schema_fingerprint %s metadata: field too large", group.kind)
+			}
+		}
+		record, err := encodeSchemaRecord(group.kind, fields)
+		if err != nil {
+			return nil, fmt.Errorf("collect mysql.schema_fingerprint %s metadata: %w", group.kind, err)
+		}
+		records = append(records, record)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate mysql.schema_fingerprint %s metadata: %w", group.kind, err)
@@ -157,7 +214,7 @@ func (c *schemaFingerprintCollector) collectGroup(ctx context.Context, group sch
 	return records, nil
 }
 
-func encodeSchemaRecord(kind string, fields []string) []byte {
+func encodeSchemaRecord(kind string, fields []string) ([]byte, error) {
 	var out bytes.Buffer
 	writeLengthPrefixed(&out, []byte(kind))
 	var count [4]byte
@@ -165,8 +222,11 @@ func encodeSchemaRecord(kind string, fields []string) []byte {
 	out.Write(count[:])
 	for _, field := range fields {
 		writeLengthPrefixed(&out, []byte(field))
+		if out.Len() > maxSchemaFingerprintRecordBytes {
+			return nil, fmt.Errorf("canonical record too large")
+		}
 	}
-	return out.Bytes()
+	return out.Bytes(), nil
 }
 
 func writeLengthPrefixed(out *bytes.Buffer, value []byte) {
