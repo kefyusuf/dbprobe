@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/kefyusuf/dbprobe/adapters/fake"
+	mysqladapter "github.com/kefyusuf/dbprobe/adapters/mysql"
 	"github.com/kefyusuf/dbprobe/internal/app/inspect"
 	"github.com/kefyusuf/dbprobe/internal/core/collection"
 	"github.com/kefyusuf/dbprobe/internal/platform/adapterregistry"
@@ -29,7 +30,7 @@ func newInspectCommand() *cobra.Command {
 				return fmt.Errorf("sample window must be positive")
 			}
 
-			registry, err := adapterregistry.New(fake.New())
+			registry, err := adapterregistry.New(fake.New(), mysqladapter.New())
 			if err != nil {
 				return err
 			}
