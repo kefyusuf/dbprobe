@@ -36,13 +36,13 @@ func (r lockWaitLongRule) Evaluate(ctx finding.AnalysisContext) []finding.Findin
 			continue
 		}
 		out = append(out, finding.Finding{
-			ID:       r.ID(),
-			Title:    "Transaction has a prolonged InnoDB row-lock wait",
-			Severity: severity,
-			Object:   object.Ref{Kind: "mysql.transaction_class", ID: "long-lock-wait"},
-			Evidence: []signal.Observation{observation},
-			Summary:  fmt.Sprintf("An InnoDB transaction has been waiting on a row lock for %.0f seconds.", seconds),
-			Guidance: "Inspect the blocking transaction, lock graph, transaction boundaries, and application retry/timeout behavior. Do not automatically kill the blocker without application context.",
+			ID:         r.ID(),
+			Title:      "Transaction has a prolonged InnoDB row-lock wait",
+			Severity:   severity,
+			Object:     object.Ref{Kind: "mysql.transaction_class", ID: "long-lock-wait"},
+			Evidence:   []signal.Observation{observation},
+			Summary:    fmt.Sprintf("An InnoDB transaction has been waiting on a row lock for %.0f seconds.", seconds),
+			Guidance:   "Inspect the blocking transaction, lock graph, transaction boundaries, and application retry/timeout behavior. Do not automatically kill the blocker without application context.",
 			Confidence: 0.95,
 		})
 	}
