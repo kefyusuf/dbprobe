@@ -20,6 +20,8 @@ jobs:
           cache: true
       - name: Verify candidate contracts
         run: make test-sqlite-drivers
+      - name: Cross-build both candidates
+        run: make cross-build-sqlite-drivers
       - name: Compare candidates
         run: RUNS=7 SNAPSHOTS=250 make compare-sqlite-drivers | tee sqlite-driver-comparison.jsonl
       - uses: actions/upload-artifact@v4

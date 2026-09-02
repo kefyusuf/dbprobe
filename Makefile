@@ -1,4 +1,4 @@
-.PHONY: fmt fmt-check mod-check vet test race build cross-build test-sqlite-drivers compare-sqlite-drivers smoke test-mysql test-mysql-down ci
+.PHONY: fmt fmt-check mod-check vet test race build cross-build test-sqlite-drivers cross-build-sqlite-drivers compare-sqlite-drivers smoke test-mysql test-mysql-down ci
 
 BINARY ?= /tmp/dbprobe
 MYSQL_COMPOSE := docker compose -f test/integration/mysql/docker-compose.yml
@@ -38,6 +38,16 @@ test-sqlite-drivers:
 	cd $(SQLITE_COMPARE_DIR) && go mod tidy
 	cd $(SQLITE_COMPARE_DIR) && git diff --exit-code -- go.mod go.sum
 	cd $(SQLITE_COMPARE_DIR) && go test ./...
+
+cross-build-sqlite-drivers: test-sqlite-drivers
+	cd $(SQLITE_COMPARE_DIR) && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /tmp/dbprobe-sqlite-modernc-linux-amd64 ./cmd/modernc
+	cd $(SQLITE_COMPARE_DIR) && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /tmp/dbprobe-sqlite-ncruces-linux-amd64 ./cmd/ncruces
+	cd $(SQLITE_COMPARE_DIR) && CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o /tmp/dbprobe-sqlite-modernc-windows-amd64.exe ./cmd/modernc
+	cd $(SQLITE_COMPARE_DIR) && CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o /tmp/dbprobe-sqlite-ncruces-windows-amd64.exe ./cmd/ncruces
+	cd $(SQLITE_COMPARE_DIR) && CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -o /tmp/dbprobe-sqlite-modernc-darwin-amd64 ./cmd/modernc
+	cd $(SQLITE_COMPARE_DIR) && CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -o /tmp/dbprobe-sqlite-ncruces-darwin-amd64 ./cmd/ncruces
+	cd $(SQLITE_COMPARE_DIR) && CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o /tmp/dbprobe-sqlite-modernc-darwin-arm64 ./cmd/modernc
+	cd $(SQLITE_COMPARE_DIR) && CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o /tmp/dbprobe-sqlite-ncruces-darwin-arm64 ./cmd/ncruces
 
 compare-sqlite-drivers: test-sqlite-drivers
 	cd $(SQLITE_COMPARE_DIR) && ./compare.sh

@@ -33,9 +33,13 @@ run_one() {
   local run=$1
   local driver=$2
   local binary=$3
-  local result
+  local started_ns finished_ns process_elapsed_ns result
+  started_ns=$(date +%s%N)
   result=$("$binary")
-  printf '{"kind":"run","run":%s,"candidate":"%s","result":%s}\n' "$run" "$driver" "$result"
+  finished_ns=$(date +%s%N)
+  process_elapsed_ns=$((finished_ns - started_ns))
+  printf '{"kind":"run","run":%s,"candidate":"%s","process_elapsed_ns":%s,"result":%s}\n' \
+    "$run" "$driver" "$process_elapsed_ns" "$result"
 }
 
 for ((run=1; run<=runs; run++)); do
