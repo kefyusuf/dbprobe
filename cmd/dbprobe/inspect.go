@@ -17,11 +17,6 @@ var historyUnavailableWarning = collection.Warning{
 	Reason:      "local history unavailable; inspection was not persisted",
 }
 
-var historyCloseUncertainWarning = collection.Warning{
-	CollectorID: "history",
-	Reason:      "local history close failed; snapshot durability could not be confirmed",
-}
-
 func newInspectCommand() *cobra.Command {
 	return newInspectCommandWithDependencies(commandDependencies{})
 }
@@ -90,7 +85,7 @@ func runInspectWithOwnedHistory(ctx context.Context, out io.Writer, target, form
 		return err
 	}
 	if err := store.Close(); err != nil {
-		return renderInspectReport(out, format, report, historyCloseUncertainWarning)
+		return renderInspectReport(out, format, report, historyUnavailableWarning)
 	}
 	return renderInspectReport(out, format, report)
 }

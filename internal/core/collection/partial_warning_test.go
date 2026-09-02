@@ -12,11 +12,19 @@ import (
 	"github.com/kefyusuf/dbprobe/sdk/signal"
 )
 
+type partialWarningWaiter struct{}
+
+func (partialWarningWaiter) Wait(context.Context, time.Duration) error { return nil }
+
 type partialWarningCollector struct{}
 
-func (partialWarningCollector) ID() collector.ID                   { return "partial.warning" }
-func (partialWarningCollector) Requires() capability.Set           { return capability.New() }
-func (partialWarningCollector) SampleMode() collector.SampleMode   { return collector.SampleSnapshot }
+func (partialWarningCollector) Descriptor() collector.Descriptor {
+	return collector.Descriptor{
+		ID:       "partial.warning",
+		Strategy: collector.StrategySnapshot,
+	}
+}
+
 func (partialWarningCollector) Collect(context.Context, collector.Request) ([]signal.Observation, error) {
 	return []signal.Observation{
 		signal.NumberObservation(
@@ -32,7 +40,7 @@ func (partialWarningCollector) Collect(context.Context, collector.Request) ([]si
 }
 
 func TestPlannerPreservesPartialEvidenceWhenCollectorWarns(t *testing.T) {
-	planner := New(fakeWaiter{}, func() time.Time { return time.Unix(1, 0).UTC() })
+	planner := New(partialWarningWaiter{}, func() time.Time { return time.Unix(1, 0).UTC() })
 	result, err := planner.Run(context.Background(), capability.New(), []collector.Collector{partialWarningCollector{}}, time.Millisecond)
 	if err != nil {
 		t.Fatal(err)
