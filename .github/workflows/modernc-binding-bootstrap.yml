@@ -1,0 +1,42 @@
+name: modernc-binding-bootstrap
+
+on:
+  push:
+    branches: [feat/modernc-sqlite-binding]
+
+permissions:
+  contents: write
+
+jobs:
+  bootstrap-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: true
+      - name: Resolve and pin modernc SQLite
+        run: |
+          go get modernc.org/sqlite@latest
+          go mod tidy
+          gofmt -w cmd/dbprobe/sqlite_history.go cmd/dbprobe/sqlite_history_test.go cmd/dbprobe/root.go
+          if git diff --quiet -- go.mod go.sum cmd/dbprobe/sqlite_history.go cmd/dbprobe/sqlite_history_test.go cmd/dbprobe/root.go; then
+            echo "modernc dependency already pinned"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add go.mod go.sum cmd/dbprobe/sqlite_history.go cmd/dbprobe/sqlite_history_test.go cmd/dbprobe/root.go
+            git commit -m "build: pin modernc SQLite driver"
+            git push origin HEAD:feat/modernc-sqlite-binding
+          fi
+      - name: Full Go 1.25 gate
+        run: make ci
+      - name: CGo-free Linux build
+        run: CGO_ENABLED=0 go build -o /tmp/dbprobe-linux-amd64 ./cmd/dbprobe
+      - name: Cross-build Windows amd64
+        run: GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o /tmp/dbprobe-windows-amd64.exe ./cmd/dbprobe
+      - name: Cross-build macOS amd64
+        run: GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -o /tmp/dbprobe-darwin-amd64 ./cmd/dbprobe
+      - name: Cross-build macOS arm64
+        run: GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -o /tmp/dbprobe-darwin-arm64 ./cmd/dbprobe
