@@ -5,6 +5,7 @@ go 1.25
 require (
 	github.com/go-sql-driver/mysql v1.10.0
 	github.com/spf13/cobra v1.10.2
+	modernc.org/sqlite v1.57.0
 )
 
 require (

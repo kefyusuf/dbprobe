@@ -8,7 +8,7 @@ import (
 )
 
 func TestInspectCommandRendersFakeJSON(t *testing.T) {
-	cmd := newRootCommand()
+	cmd := newRootCommandWithDependencies(commandDependencies{})
 	var stdout, stderr bytes.Buffer
 	cmd.SetOut(&stdout)
 	cmd.SetErr(&stderr)
@@ -32,7 +32,7 @@ func TestInspectCommandRendersFakeJSON(t *testing.T) {
 }
 
 func TestInspectCommandRejectsUnsupportedFormatBeforeOpeningAdapter(t *testing.T) {
-	cmd := newRootCommand()
+	cmd := newRootCommandWithDependencies(commandDependencies{})
 	var stdout, stderr bytes.Buffer
 	cmd.SetOut(&stdout)
 	cmd.SetErr(&stderr)
