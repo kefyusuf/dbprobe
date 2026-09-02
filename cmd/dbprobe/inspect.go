@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
 	"github.com/kefyusuf/dbprobe/internal/core/collection"
-	"github.com/kefyusuf/dbprobe/internal/core/temporal"
+	"github.com/kefyusuf/dbprobe/internal/platform/adapterregistry"
 	"github.com/spf13/cobra"
 )
 
@@ -56,12 +58,30 @@ func newInspectCommandWithDependencies(deps commandDependencies) *cobra.Command 
 			if err != nil {
 				return runWithoutHistory()
 			}
-			return withOpenedHistoryStore(store, func(store temporal.Store) error {
-				return runInspect(cmd.Context(), cmd.OutOrStdout(), args[0], format, sampleWindow, registry, store)
-			})
+			return runInspectWithOwnedHistory(cmd.Context(), cmd.OutOrStdout(), args[0], format, sampleWindow, registry, store)
 		},
 	}
 	cmd.Flags().StringVar(&format, "format", "text", "output format: text or json")
 	cmd.Flags().DurationVar(&sampleWindow, "sample-window", time.Second, "counter sampling window")
 	return cmd
+}
+
+func runInspectWithOwnedHistory(ctx context.Context, out io.Writer, target, format string, sampleWindow time.Duration, registry *adapterregistry.Registry, store ownedHistoryStore) error {
+	if store == nil {
+		return fmt.Errorf("history store is required")
+	}
+	runner, err := newInspectRunner(registry, store)
+	if err != nil {
+		_ = store.Close()
+		return err
+	}
+	report, err := collectInspectReport(ctx, out, target, format, sampleWindow, runner)
+	if err != nil {
+		_ = store.Close()
+		return err
+	}
+	if err := store.Close(); err != nil {
+		return renderInspectReport(out, format, report, historyUnavailableWarning)
+	}
+	return renderInspectReport(out, format, report)
 }
