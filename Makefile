@@ -62,15 +62,22 @@ smoke: build
 
 test-mysql:
 	@set -eu; \
+	data_root=$$(mktemp -d); \
+	cleanup() { $(MYSQL_COMPOSE) down -v; rm -rf "$$data_root"; }; \
+	trap cleanup EXIT; \
 	$(MYSQL_COMPOSE) up -d --wait; \
-	trap '$(MYSQL_COMPOSE) down -v' EXIT; \
 	DBPROBE_MYSQL_INTEGRATION=1 DBPROBE_MYSQL80_DSN='$(MYSQL80_DSN)' DBPROBE_MYSQL84_DSN='$(MYSQL84_DSN)' go test ./test/integration/mysql -v; \
 	DBPROBE_TEST_MYSQL_DSN='$(MYSQL80_DSN)' go test ./test/contract -run TestAdapterContract/mysql -v; \
 	DBPROBE_TEST_MYSQL_DSN='$(MYSQL84_DSN)' go test ./test/contract -run TestAdapterContract/mysql -v; \
 	CGO_ENABLED=0 go build -o $(BINARY) ./cmd/dbprobe; \
+	export XDG_DATA_HOME="$$data_root"; \
 	$(BINARY) inspect '$(MYSQL84_DSN)' --format=json --sample-window=10ms > /tmp/dbprobe-mysql-report.json; \
 	grep -q '"schema_version": "dbprobe.inspect/v1alpha1"' /tmp/dbprobe-mysql-report.json; \
 	grep -q '"engine": "mysql"' /tmp/dbprobe-mysql-report.json; \
+	$(BINARY) inspect '$(MYSQL84_DSN)' --format=json --sample-window=10ms > /tmp/dbprobe-mysql-report-2.json; \
+	$(BINARY) diff '$(MYSQL84_DSN)' --format=json > /tmp/dbprobe-mysql-diff.json; \
+	grep -q '"schema_version": "dbprobe.diff/v1alpha1"' /tmp/dbprobe-mysql-diff.json; \
+	test -s "$$data_root/dbprobe/dbprobe.db"; \
 	$(BINARY) explain '$(MYSQL84_DSN)' --statement "SELECT * FROM shop.customers WHERE email = 'alice@example.test'" --format=json > /tmp/dbprobe-mysql-explain.json; \
 	grep -q '"schema_version": "dbprobe.explain/v1alpha1"' /tmp/dbprobe-mysql-explain.json; \
 	grep -q '"sanitized": true' /tmp/dbprobe-mysql-explain.json; \

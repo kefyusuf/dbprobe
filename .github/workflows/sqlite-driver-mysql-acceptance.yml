@@ -1,0 +1,41 @@
+name: SQLite driver and MySQL acceptance
+
+on:
+  push:
+    branches: [feat/modernc-sqlite-binding]
+
+permissions:
+  contents: read
+
+jobs:
+  sqlite-driver-comparison:
+    if: contains(github.event.head_commit.message, '[acceptance]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: true
+      - name: Verify candidate contracts
+        run: make test-sqlite-drivers
+      - name: Compare candidates
+        run: RUNS=7 SNAPSHOTS=250 make compare-sqlite-drivers | tee sqlite-driver-comparison.jsonl
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sqlite-driver-comparison
+          path: sqlite-driver-comparison.jsonl
+
+  mysql-acceptance:
+    if: contains(github.event.head_commit.message, '[acceptance]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: true
+      - name: Run MySQL 8.0 and 8.4 acceptance
+        run: make test-mysql
