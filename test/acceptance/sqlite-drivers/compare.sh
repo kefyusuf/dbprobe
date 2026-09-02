@@ -5,12 +5,11 @@ runs=${RUNS:-7}
 snapshots=${SNAPSHOTS:-250}
 out=${OUT:-/tmp/dbprobe-sqlite-driver-comparison}
 
-case "$runs:$snapshots" in
-  *[!0-9:]*|0:*|*:0|*:1)
-    echo "RUNS and SNAPSHOTS must be positive integers; SNAPSHOTS must be at least 2" >&2
-    exit 2
-    ;;
-esac
+if ! [[ "$runs" =~ ^[1-9][0-9]*$ ]] ||
+   ! [[ "$snapshots" =~ ^([2-9]|[1-9][0-9]+)$ ]]; then
+  echo "RUNS and SNAPSHOTS must be canonical positive integers; SNAPSHOTS must be at least 2" >&2
+  exit 2
+fi
 
 rm -rf "$out"
 mkdir -p "$out"
