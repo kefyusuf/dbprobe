@@ -2,7 +2,7 @@
 
 Database intelligence runtime for deterministic, read-only diagnostics, temporal analysis, CI/agent surfaces, and database-specific intelligence behind modular adapters.
 
-> **v0.1 integration candidate:** bounded collection, generic core findings, temporal intelligence, persistent SQLite history, the MySQL 8.0/8.4 adapter, structural schema fingerprinting, safe plan-only EXPLAIN, and the test-only MongoDB semantic probe are integrated. Revision-bound feature evidence covers the complete Go 1.25 normal/race/build/smoke gate, CGo-free Linux/Windows/macOS builds, live SQLite close/reopen acceptance, and the MySQL 8.0.46/8.4.11 Docker matrix. The exact squash-merged `integration-v0.1` revision remains subject to the permanent integration-branch CI gate. This is not a tagged release.
+> **v0.1 integration candidate:** bounded collection, generic core findings, temporal intelligence, persistent SQLite history, the MySQL 8.0/8.4 adapter, structural schema fingerprinting, safe plan-only EXPLAIN, and the test-only MongoDB semantic probe are integrated. Exact squash-merged revision `84d9f7dcec88b206864cef71a90a2922d408bcbd` on `integration-v0.1` passed permanent CI run `33651852902`, including the complete Go 1.25 normal/race/build/smoke gate and CGo-free Linux/Windows/macOS builds. Revision-bound acceptance also covers live SQLite close/reopen behavior and the MySQL 8.0.46/8.4.11 Docker matrix. Promotion toward `main` remains a separate review gate; this is not a tagged release.
 
 ## Architecture
 
