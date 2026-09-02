@@ -20,6 +20,9 @@ jobs:
       - name: Resolve modules and format source
         run: |
           go mod tidy
+          if [ -f test/acceptance/sqlite-drivers/go.mod ]; then
+            (cd test/acceptance/sqlite-drivers && go mod tidy)
+          fi
           gofmt -w $(find . -name '*.go' -not -path './vendor/*')
           if git diff --quiet; then
             echo "Dependency and formatting state already clean"
@@ -27,7 +30,7 @@ jobs:
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add -A
-            git commit -m "build: resolve modernc SQLite dependency"
+            git commit -m "build: resolve SQLite comparison dependencies"
             git push origin HEAD:feat/modernc-sqlite-binding
           fi
       - name: Run complete driver-inclusive gate

@@ -1,9 +1,10 @@
-.PHONY: fmt fmt-check mod-check vet test race build cross-build smoke test-mysql test-mysql-down ci
+.PHONY: fmt fmt-check mod-check vet test race build cross-build test-sqlite-drivers compare-sqlite-drivers smoke test-mysql test-mysql-down ci
 
 BINARY ?= /tmp/dbprobe
 MYSQL_COMPOSE := docker compose -f test/integration/mysql/docker-compose.yml
 MYSQL80_DSN ?= mysql://dbprobe:dbprobe-pass@127.0.0.1:13306/shop
 MYSQL84_DSN ?= mysql://dbprobe:dbprobe-pass@127.0.0.1:13307/shop
+SQLITE_COMPARE_DIR := test/acceptance/sqlite-drivers
 
 fmt:
 	gofmt -w $$(find . -name '*.go' -not -path './vendor/*')
@@ -33,6 +34,14 @@ cross-build:
 	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -o /tmp/dbprobe-darwin-amd64 ./cmd/dbprobe
 	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o /tmp/dbprobe-darwin-arm64 ./cmd/dbprobe
 
+test-sqlite-drivers:
+	cd $(SQLITE_COMPARE_DIR) && go mod tidy
+	cd $(SQLITE_COMPARE_DIR) && git diff --exit-code -- go.mod go.sum
+	cd $(SQLITE_COMPARE_DIR) && go test ./...
+
+compare-sqlite-drivers: test-sqlite-drivers
+	cd $(SQLITE_COMPARE_DIR) && ./compare.sh
+
 smoke: build
 	@set -eu; \
 	data_root=$$(mktemp -d); \
@@ -58,7 +67,7 @@ test-mysql:
 	DBPROBE_MYSQL_INTEGRATION=1 DBPROBE_MYSQL80_DSN='$(MYSQL80_DSN)' DBPROBE_MYSQL84_DSN='$(MYSQL84_DSN)' go test ./test/integration/mysql -v; \
 	DBPROBE_TEST_MYSQL_DSN='$(MYSQL80_DSN)' go test ./test/contract -run TestAdapterContract/mysql -v; \
 	DBPROBE_TEST_MYSQL_DSN='$(MYSQL84_DSN)' go test ./test/contract -run TestAdapterContract/mysql -v; \
-	go build -o $(BINARY) ./cmd/dbprobe; \
+	CGO_ENABLED=0 go build -o $(BINARY) ./cmd/dbprobe; \
 	$(BINARY) inspect '$(MYSQL84_DSN)' --format=json --sample-window=10ms > /tmp/dbprobe-mysql-report.json; \
 	grep -q '"schema_version": "dbprobe.inspect/v1alpha1"' /tmp/dbprobe-mysql-report.json; \
 	grep -q '"engine": "mysql"' /tmp/dbprobe-mysql-report.json; \
