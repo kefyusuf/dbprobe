@@ -164,8 +164,10 @@ type recordingSQLConn struct{ state *recordingSQLState }
 func (*recordingSQLConn) Prepare(string) (driver.Stmt, error) {
 	return nil, errors.New("prepare not supported")
 }
-func (*recordingSQLConn) Close() error              { return nil }
-func (*recordingSQLConn) Begin() (driver.Tx, error) { return nil, errors.New("legacy begin not supported") }
+func (*recordingSQLConn) Close() error { return nil }
+func (*recordingSQLConn) Begin() (driver.Tx, error) {
+	return nil, errors.New("legacy begin not supported")
+}
 func (c *recordingSQLConn) BeginTx(_ context.Context, opts driver.TxOptions) (driver.Tx, error) {
 	c.state.readOnly = opts.ReadOnly
 	return &recordingSQLTx{state: c.state}, nil

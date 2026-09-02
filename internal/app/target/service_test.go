@@ -31,7 +31,7 @@ type targetTestRuntime struct {
 	closed int
 }
 
-func (r *targetTestRuntime) Target() adapter.TargetMetadata { return r.target }
+func (r *targetTestRuntime) Target() adapter.TargetMetadata  { return r.target }
 func (*targetTestRuntime) Capabilities() capability.Set      { return capability.New() }
 func (*targetTestRuntime) Collectors() []collector.Collector { return nil }
 func (*targetTestRuntime) Rules() []finding.Rule             { return nil }
