@@ -2,8 +2,12 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -34,6 +38,81 @@ func TestDefaultRootPersistsHistoryAcrossInvocations(t *testing.T) {
 	}
 	if info.Size() == 0 {
 		t.Fatal("history database is empty")
+	}
+}
+
+func TestInspectContinuesWhenLocalHistoryCannotOpen(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		deps commandDependencies
+	}{
+		{
+			name: "path resolution failure",
+			deps: commandDependencies{
+				historyPath: func() (string, error) { return "", errors.New("sensitive path failure") },
+				openHistory: func(context.Context, string) (ownedHistoryStore, error) {
+					t.Fatal("history store must not open after path resolution failure")
+					return nil, nil
+				},
+			},
+		},
+		{
+			name: "store open failure",
+			deps: commandDependencies{
+				historyPath: func() (string, error) { return filepath.Join(t.TempDir(), "dbprobe.db"), nil },
+				openHistory: func(context.Context, string) (ownedHistoryStore, error) {
+					return nil, errors.New("sensitive database failure")
+				},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := newRootCommandWithDependencies(tc.deps)
+			var stdout, stderr bytes.Buffer
+			cmd.SetOut(&stdout)
+			cmd.SetErr(&stderr)
+			cmd.SetArgs([]string{"inspect", "fake://local", "--format=json", "--sample-window=1ms"})
+
+			if err := cmd.Execute(); err != nil {
+				t.Fatalf("inspect error=%v stderr=%q", err, stderr.String())
+			}
+
+			var report struct {
+				SchemaVersion string `json:"schema_version"`
+				Warnings      []struct {
+					CollectorID string `json:"collector_id"`
+					Reason      string `json:"reason"`
+				} `json:"warnings"`
+			}
+			if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+				t.Fatalf("invalid JSON: %v\n%s", err, stdout.String())
+			}
+			if report.SchemaVersion != "dbprobe.inspect/v1alpha1" {
+				t.Fatalf("schema_version=%q", report.SchemaVersion)
+			}
+			if len(report.Warnings) != 1 || report.Warnings[0].CollectorID != "history" || report.Warnings[0].Reason != "local history unavailable; inspection was not persisted" {
+				t.Fatalf("warnings=%#v", report.Warnings)
+			}
+			if strings.Contains(stdout.String(), "sensitive") || strings.Contains(stderr.String(), "sensitive") {
+				t.Fatalf("history error details leaked: stdout=%q stderr=%q", stdout.String(), stderr.String())
+			}
+		})
+	}
+}
+
+func TestDiffStillRequiresLocalHistory(t *testing.T) {
+	deps := commandDependencies{
+		historyPath: func() (string, error) { return filepath.Join(t.TempDir(), "dbprobe.db"), nil },
+		openHistory: func(context.Context, string) (ownedHistoryStore, error) {
+			return nil, errors.New("history unavailable")
+		},
+	}
+	cmd := newRootCommandWithDependencies(deps)
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"diff", "fake://local", "--format=json"})
+	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "history unavailable") {
+		t.Fatalf("diff error=%v", err)
 	}
 }
 
