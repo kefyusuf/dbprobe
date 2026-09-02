@@ -33,5 +33,7 @@ jobs:
             git commit -m "build: resolve SQLite comparison dependencies"
             git push origin HEAD:feat/modernc-sqlite-binding
           fi
+      - name: Verify candidate persistence contracts
+        run: make test-sqlite-drivers
       - name: Run complete driver-inclusive gate
         run: make ci
