@@ -38,6 +38,7 @@ test-sqlite-drivers:
 	cd $(SQLITE_COMPARE_DIR) && go mod tidy
 	cd $(SQLITE_COMPARE_DIR) && git diff --exit-code -- go.mod go.sum
 	cd $(SQLITE_COMPARE_DIR) && go test ./...
+	cd $(SQLITE_COMPARE_DIR) && bash ./compare_validation_test.sh
 
 cross-build-sqlite-drivers: test-sqlite-drivers
 	cd $(SQLITE_COMPARE_DIR) && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /tmp/dbprobe-sqlite-modernc-linux-amd64 ./cmd/modernc
