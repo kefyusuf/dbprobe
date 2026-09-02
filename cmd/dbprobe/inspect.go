@@ -9,6 +9,7 @@ import (
 
 	"github.com/kefyusuf/dbprobe/internal/core/collection"
 	"github.com/kefyusuf/dbprobe/internal/platform/adapterregistry"
+	"github.com/kefyusuf/dbprobe/sdk/adapter"
 	"github.com/spf13/cobra"
 )
 
@@ -44,6 +45,14 @@ func newInspectCommandWithDependencies(deps commandDependencies) *cobra.Command 
 			if err != nil {
 				return err
 			}
+			spec, err := adapter.ParseTarget(args[0])
+			if err != nil {
+				return err
+			}
+			if _, err := registry.Resolve(spec); err != nil {
+				return err
+			}
+
 			runWithoutHistory := func() error {
 				return runInspect(cmd.Context(), cmd.OutOrStdout(), args[0], format, sampleWindow, registry, nil, historyUnavailableWarning)
 			}
