@@ -51,7 +51,7 @@ Risks and costs:
 - Larger transitive module graph than ncruces.
 - The translated-runtime stack includes `modernc.org/libc`; ABI-compatible module versions must be retained.
 - `v1.57.0` resolves `modernc.org/libc v1.74.4`; dbprobe must not independently force an incompatible libc version.
-- It was slower than ncruces in the bounded comparison workload, although the absolute per-snapshot difference was below one millisecond.
+- It was slower than ncruces in the bounded comparison workload, although the corrected normal-write difference was approximately 0.076 ms per snapshot.
 
 ### `github.com/ncruces/go-sqlite3`
 
@@ -92,7 +92,9 @@ The default CLI composition supplies the modernc-backed owned-store factory. Con
 
 - `dbprobe inspect` persists snapshots to the platform data path by default;
 - `dbprobe diff` is part of the default command graph;
-- a history path-resolution or open failure does not block inspection and is rendered only as a generic history warning;
+- history path-resolution, open or close failure does not block a completed inspection and is rendered only as a generic history warning;
+- underlying filesystem and driver details are not copied into the report;
+- the target inspection is never rerun to recover from a persistence failure;
 - `dbprobe diff` still fails when history is unavailable because it cannot produce a meaningful comparison without stored snapshots.
 
 ## Acceptance evidence
@@ -113,6 +115,8 @@ The live modernc path passed:
 - foreign-key cascade cleanup;
 - private file permissions where supported;
 - default CLI `inspect -> inspect -> diff` persistence;
+- stateless inspect fallback on history path/open failure;
+- successful report rendering with a generic warning on history close failure;
 - normal and race test suites.
 
 ### Toolchain and platforms
@@ -128,23 +132,24 @@ Both modernc and ncruces comparison binaries passed the same CGo-free target mat
 
 ### Candidate comparison
 
-Evidence is recorded in `docs/benchmarks/2026-09-02-sqlite-driver-selection.md` and was produced by workflow run `33646041100` on Go 1.25.14.
+Corrected evidence is recorded in `docs/benchmarks/2026-09-02-sqlite-driver-selection.md` and was produced by workflow run `33647790603` on Go 1.25.14. The artifact is `sqlite-driver-comparison`, ID `9853550603`.
 
-Median results over seven alternating runs with 250 snapshots, 32 observations and 16 deltas per snapshot:
+The corrected benchmark separates normal writes from duplicate validation and separates reopen/read work from conflicting-payload and close checks. Median results over seven alternating runs with 250 snapshots, 32 observations and 16 deltas per snapshot:
 
 | Metric | modernc v1.57.0 | ncruces v0.35.3 |
 |---|---:|---:|
-| Stripped comparison binary | 6.38 MiB | 8.70 MiB |
-| Full process elapsed | 1,060.421 ms | 940.012 ms |
-| Open + migrate | 2.519 ms | 2.522 ms |
-| Write per snapshot | 4.007 ms | 3.541 ms |
-| Reopen + read checks | 46.636 ms | 38.676 ms |
+| Stripped comparison binary | 6.383 MiB | 8.699 MiB |
+| Full process elapsed | 850.364 ms | 816.795 ms |
+| Open + migrate | 2.636 ms | 2.574 ms |
+| 250 normal snapshot writes | 793.949 ms | 774.863 ms |
+| Write per normal snapshot | 3.176 ms | 3.099 ms |
+| Reopen + read checks | 34.336 ms | 30.556 ms |
 
-ncruces was approximately 13% faster overall. The absolute median write difference was approximately 0.47 ms per snapshot, while modernc produced a 2.32 MiB smaller comparison binary. Because target-database collection and counter sampling dominate a normal dbprobe inspection, the local persistence difference was judged non-material for the default CLI. Maturity, v1 stability and binary footprint therefore outweighed the microbenchmark advantage.
+ncruces was approximately 2.5% faster for ordinary snapshot writes and 4.1% faster for the full process. The absolute median write difference was approximately 0.076 ms per persisted snapshot, while modernc produced a 2.316 MiB smaller comparison binary. Because target-database collection and counter sampling dominate a normal dbprobe inspection, the local persistence difference was judged non-material for the default CLI. Maturity, v1 stability and binary footprint therefore outweighed the microbenchmark advantage.
 
 ### MySQL integration
 
-The modernc-backed default CLI also passed the Docker acceptance matrix against MySQL 8.0.46 and 8.4.11, including two persisted MySQL inspections followed by a versioned `dbprobe diff` report. The same gate retained adapter contract, schema fingerprint, plan sanitization and credential/privacy assertions.
+The modernc-backed default CLI passed the Docker acceptance matrix against MySQL 8.0.46 and 8.4.11 on the same corrected acceptance revision, including two persisted MySQL inspections followed by a versioned `dbprobe diff` report. The gate retained adapter contract, schema fingerprint, plan sanitization and credential/privacy assertions.
 
 ## Consequences
 

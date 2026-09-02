@@ -70,16 +70,18 @@ The live modernc gate verifies:
 - default CLI `inspect -> inspect -> diff` persistence;
 - CGo-free Linux, Windows and macOS builds.
 
-The candidate comparison and decision rationale are recorded in `docs/benchmarks/2026-09-02-sqlite-driver-selection.md` and `docs/adr/ADR-013-sqlite-driver-selection.md`.
+The corrected candidate comparison and decision rationale are recorded in `docs/benchmarks/2026-09-02-sqlite-driver-selection.md` and `docs/adr/ADR-013-sqlite-driver-selection.md`.
 
 ### History availability semantics
 
 `dbprobe inspect` treats local history as optional operational infrastructure:
 
 - when the history path resolves and SQLite opens, the inspection snapshot is persisted;
-- when path resolution or store opening fails, inspection still runs and emits a generic `history` warning;
-- underlying local paths and database-open errors are not copied into the report;
-- an inspection or close failure is not retried, preventing duplicate target collection;
+- path-resolution or store-open failure falls back to a stateless inspection;
+- snapshot construction/save failure remains a non-fatal `history` warning from the application service;
+- store-close failure does not replace an otherwise successful inspection result;
+- all local-history failures use a generic warning and do not copy filesystem, path or driver details into the report;
+- target collection is never repeated to recover from a persistence failure;
 - `dbprobe diff` remains strict and returns an error when history is unavailable because no meaningful comparison can be produced.
 
 ### MySQL adapter
@@ -172,7 +174,7 @@ MySQL URI options are restricted to diagnostic connection settings such as `tls`
 - Missing privileges reduce advertised capabilities instead of pretending visibility is complete.
 - Temporal persistence filters raw query-text sensitivity classes.
 - SQLite snapshot persistence is size-bounded and fails closed on identity/envelope corruption.
-- Local-history open failures are represented by a generic warning without leaking filesystem or driver details.
+- Local-history path, open, save and close failures are represented by generic warnings without leaking filesystem or driver details.
 
 ## Non-relational architecture probe
 
@@ -208,7 +210,7 @@ make cross-build-sqlite-drivers
 RUNS=7 SNAPSHOTS=250 make compare-sqlite-drivers
 ```
 
-The ncruces comparison dependency is confined to `test/acceptance/sqlite-drivers`, which is a separate Go module.
+The ncruces comparison dependency is confined to `test/acceptance/sqlite-drivers`, which is a separate Go module. Benchmark timing reports normal writes, duplicate validation, close, reopen/read and conflicting-payload checks as separate phases.
 
 ### MySQL acceptance
 
