@@ -52,3 +52,62 @@ func TestPlannerPreservesPartialEvidenceWhenCollectorWarns(t *testing.T) {
 		t.Fatalf("warnings=%#v", result.Warnings)
 	}
 }
+
+type partialCounterCollector struct {
+	warnPhase collector.Phase
+}
+
+func (partialCounterCollector) Descriptor() collector.Descriptor {
+	return collector.Descriptor{
+		ID:       "partial.counter",
+		Strategy: collector.StrategyCounter,
+	}
+}
+
+func (c partialCounterCollector) Collect(_ context.Context, req collector.Request) ([]signal.Observation, error) {
+	value := 10.0
+	if req.Phase == collector.PhaseSampleB {
+		value = 15
+	}
+	observations := []signal.Observation{
+		signal.NumberObservation(
+			"partial.counter.value",
+			object.Ref{Kind: "test.object", ID: "stable"},
+			value,
+			signal.UnitCount,
+			signal.ExactnessCumulative,
+			signal.SensitivityMetadata,
+			time.Unix(1, 0).UTC(),
+		),
+	}
+	if req.Phase == c.warnPhase {
+		return observations, errors.New("bounded counter scan truncated")
+	}
+	return observations, nil
+}
+
+func TestPlannerComputesOverlappingDeltaFromPartialCounterEvidence(t *testing.T) {
+	for _, phase := range []collector.Phase{collector.PhaseSampleA, collector.PhaseSampleB} {
+		t.Run(string(phase), func(t *testing.T) {
+			planner := New(partialWarningWaiter{}, func() time.Time { return time.Unix(1, 0).UTC() })
+			result, err := planner.Run(
+				context.Background(),
+				capability.New(),
+				[]collector.Collector{partialCounterCollector{warnPhase: phase}},
+				time.Second,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(result.Observations) != 1 {
+				t.Fatalf("phase=%q observations=%#v", phase, result.Observations)
+			}
+			if len(result.Deltas) != 1 || result.Deltas[0].Delta != 5 || result.Deltas[0].RatePerSecond != 5 {
+				t.Fatalf("phase=%q deltas=%#v", phase, result.Deltas)
+			}
+			if len(result.Warnings) != 1 || result.Warnings[0].CollectorID != "partial.counter" || result.Warnings[0].Reason != "bounded counter scan truncated" {
+				t.Fatalf("phase=%q warnings=%#v", phase, result.Warnings)
+			}
+		})
+	}
+}
