@@ -3,8 +3,8 @@ package sqlite_drivers_test
 import (
 	"testing"
 
-	ncrucesdriver "github.com/ncruces/go-sqlite3/driver"
 	"github.com/kefyusuf/dbprobe/test/acceptance/sqlite-drivers/probe"
+	ncrucesdriver "github.com/ncruces/go-sqlite3/driver"
 	modernsqlite "modernc.org/sqlite"
 )
 
