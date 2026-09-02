@@ -5,7 +5,7 @@ on:
     branches: [feat/sqlite-cli-orchestration]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   test:
@@ -16,18 +16,26 @@ jobs:
         with:
           go-version: '1.25.x'
           cache: true
-      - name: Verify module files
+      - name: Apply known integration formatting debt
         run: |
-          go mod tidy
-          git diff --exit-code -- go.mod go.sum
-      - name: Vet repository
-        run: go vet ./...
-      - name: Test repository
-        run: go test ./...
-      - name: Race-test repository
-        run: go test -race ./...
-      - name: Build and smoke CLI
-        run: make smoke
-      - name: Report known formatting debt
-        if: always()
-        run: gofmt -l $(find . -name '*.go' -not -path './vendor/*')
+          files=(
+            internal/app/target/service_test.go
+            internal/app/inspect/rule_precedence_test.go
+            internal/core/temporal/diff_test.go
+            internal/core/temporal/query_regression.go
+            cmd/dbprobe/explain_test.go
+            test/architecture/mongodb_probe_test.go
+            adapters/mysql/explain_test.go
+            adapters/mysql/explain.go
+          )
+          gofmt -w "${files[@]}"
+          if git diff --quiet -- "${files[@]}"; then
+            echo "No formatting changes needed"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add -- "${files[@]}"
+            git commit -m "style: gofmt integrated source"
+            git push origin HEAD:feat/sqlite-cli-orchestration
+          fi
+      - run: make ci
