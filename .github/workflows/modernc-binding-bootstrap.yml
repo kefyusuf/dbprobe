@@ -1,0 +1,34 @@
+name: modernc-binding-bootstrap
+
+on:
+  push:
+    branches: [feat/modernc-sqlite-binding]
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: true
+      - name: Resolve modules and format source
+        run: |
+          go mod tidy
+          gofmt -w $(find . -name '*.go' -not -path './vendor/*')
+          if git diff --quiet; then
+            echo "Dependency and formatting state already clean"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add go.mod go.sum '*.go' ':/**.go'
+            git commit -m "build: resolve modernc SQLite dependency"
+            git push origin HEAD:feat/modernc-sqlite-binding
+          fi
+      - name: Run complete driver-inclusive gate
+        run: make ci
