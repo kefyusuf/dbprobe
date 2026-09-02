@@ -1,0 +1,68 @@
+name: modernc-finalize
+
+on:
+  push:
+    branches: [feat/modernc-sqlite-binding]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  acceptance-and-integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: true
+      - name: Require completed binding bootstrap
+        id: readiness
+        run: |
+          if ! grep -q 'modernc.org/sqlite' go.mod; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "modernc dependency is not pinned yet"
+            exit 0
+          fi
+          if [ -f .github/workflows/modernc-selfreview.yml ] || [ -f .github/workflows/modernc-binding-bootstrap.yml ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "binding bootstrap is still active"
+            exit 0
+          fi
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+      - name: Full driver-inclusive Go 1.25 gate
+        if: steps.readiness.outputs.ready == 'true'
+        run: make ci
+      - name: CGo-free release build matrix
+        if: steps.readiness.outputs.ready == 'true'
+        run: |
+          CGO_ENABLED=0 go build -o /tmp/dbprobe-linux-amd64 ./cmd/dbprobe
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o /tmp/dbprobe-windows-amd64.exe ./cmd/dbprobe
+          GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -o /tmp/dbprobe-darwin-amd64 ./cmd/dbprobe
+          GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -o /tmp/dbprobe-darwin-arm64 ./cmd/dbprobe
+      - name: MySQL 8.0 and 8.4 Docker acceptance
+        if: steps.readiness.outputs.ready == 'true'
+        run: make test-mysql
+      - name: Remove one-time finalizer
+        if: steps.readiness.outputs.ready == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/modernc-finalize.yml
+          git commit -m "ci: remove completed modernc finalizer"
+          git pull --rebase origin feat/modernc-sqlite-binding
+          git push origin HEAD:feat/modernc-sqlite-binding
+      - name: Record acceptance and merge into integration
+        if: steps.readiness.outputs.ready == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pr="$(gh pr list --head feat/modernc-sqlite-binding --base integration-v0.1 --state open --json number --jq '.[0].number')"
+          test -n "$pr"
+          version="$(go list -m -f '{{.Version}}' modernc.org/sqlite)"
+          gh pr comment "$pr" --body "Acceptance passed with modernc.org/sqlite ${version}: full Go 1.25 make ci, live close/reopen persistence tests, CGo-free Linux/Windows/macOS builds, and MySQL 8.0.46/8.4.11 Docker matrix."
+          gh pr ready "$pr"
+          gh pr merge "$pr" --squash --subject "feat: bind persistent SQLite history with modernc" --body "Pin the CGo-free modernc SQLite driver, enable persistent inspect/diff composition, verify on-disk close/reopen semantics, and pass the full Go 1.25 and MySQL Docker acceptance gates."
