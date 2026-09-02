@@ -2,7 +2,7 @@
 
 Database intelligence runtime for deterministic, read-only diagnostics, temporal analysis, CI/agent surfaces, and database-specific intelligence behind modular adapters.
 
-> **v0.1 integration candidate:** bounded collection, generic core findings, temporal intelligence, persistent SQLite history, the MySQL 8.0/8.4 adapter, structural schema fingerprinting, safe plan-only EXPLAIN, and the test-only MongoDB semantic probe are integrated. The candidate passes the complete Go 1.25 normal/race/build/smoke gate, CGo-free Linux/Windows/macOS builds, live SQLite close/reopen acceptance, and the MySQL 8.0.46/8.4.11 Docker matrix. This is still an integration candidate, not a tagged release.
+> **v0.1 integration candidate:** bounded collection, generic core findings, temporal intelligence, persistent SQLite history, the MySQL 8.0/8.4 adapter, structural schema fingerprinting, safe plan-only EXPLAIN, and the test-only MongoDB semantic probe are integrated. Revision-bound feature evidence covers the complete Go 1.25 normal/race/build/smoke gate, CGo-free Linux/Windows/macOS builds, live SQLite close/reopen acceptance, and the MySQL 8.0.46/8.4.11 Docker matrix. The exact squash-merged `integration-v0.1` revision remains subject to the permanent integration-branch CI gate. This is not a tagged release.
 
 ## Architecture
 
@@ -127,7 +127,7 @@ dbprobe inspect 'mysql://dbprobe:password@127.0.0.1:3306/shop' \
   --sample-window=1s
 ```
 
-Successful inspections are persisted automatically to the platform data file:
+When local history is available, successful inspections are persisted automatically to the platform data file. When it is unavailable, `inspect` still returns its diagnostic report with a generic history warning and does not claim that the snapshot was stored.
 
 | Platform | Default location |
 |---|---|
@@ -137,7 +137,7 @@ Successful inspections are persisted automatically to the platform data file:
 
 ### Diff
 
-After at least two inspections of the same target:
+After at least two persisted inspections of the same target:
 
 ```bash
 dbprobe diff 'mysql://dbprobe:password@127.0.0.1:3306/shop'
@@ -198,6 +198,8 @@ go test ./...
 go test -race ./...
 CGo-free production build
 Linux/Windows/macOS cross-builds
+SQLite candidate persistence contracts
+benchmark input-validation regression
 persistent inspect/diff CLI smoke tests
 privacy and invalid-input smoke assertions
 ```
@@ -210,7 +212,7 @@ make cross-build-sqlite-drivers
 RUNS=7 SNAPSHOTS=250 make compare-sqlite-drivers
 ```
 
-The ncruces comparison dependency is confined to `test/acceptance/sqlite-drivers`, which is a separate Go module. Benchmark timing reports normal writes, duplicate validation, close, reopen/read and conflicting-payload checks as separate phases.
+The ncruces comparison dependency is confined to `test/acceptance/sqlite-drivers`, which is a separate Go module. Benchmark timing reports normal writes, duplicate validation, close, reopen/read and conflicting-payload checks as separate phases. Run and snapshot counts must use canonical positive decimal notation; snapshot count must be at least two.
 
 ### MySQL acceptance
 
