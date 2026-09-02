@@ -86,6 +86,19 @@ func TestHistoryBackedCommandsValidateBeforeOpeningStore(t *testing.T) {
 }
 
 func TestInspectRejectsInvalidTargetsBeforeOpeningHistory(t *testing.T) {
+	assertInvalidTargetsDoNotOpenHistory(t, func(target string) []string {
+		return []string{"inspect", target, "--format=json", "--sample-window=1ms"}
+	})
+}
+
+func TestDiffRejectsInvalidTargetsBeforeOpeningHistory(t *testing.T) {
+	assertInvalidTargetsDoNotOpenHistory(t, func(target string) []string {
+		return []string{"diff", target, "--format=json"}
+	})
+}
+
+func assertInvalidTargetsDoNotOpenHistory(t *testing.T, argsForTarget func(string) []string) {
+	t.Helper()
 	for _, tc := range []struct {
 		target string
 		want   string
@@ -105,7 +118,7 @@ func TestInspectRejectsInvalidTargetsBeforeOpeningHistory(t *testing.T) {
 			cmd := newRootCommandWithDependencies(deps)
 			cmd.SetOut(&bytes.Buffer{})
 			cmd.SetErr(&bytes.Buffer{})
-			cmd.SetArgs([]string{"inspect", tc.target, "--format=json", "--sample-window=1ms"})
+			cmd.SetArgs(argsForTarget(tc.target))
 			err := cmd.Execute()
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("target=%q err=%v; want %q", tc.target, err, tc.want)
