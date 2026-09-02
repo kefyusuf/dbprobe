@@ -103,11 +103,10 @@ func (p *Planner) Run(ctx context.Context, caps capability.Set, collectors []col
 		return Result{}, err
 	}
 	for _, collected := range snapshotResults {
+		result.Observations = append(result.Observations, collected.observed...)
 		if collected.err != nil {
 			result.Warnings = append(result.Warnings, Warning{CollectorID: collected.descriptor.ID, Reason: collected.err.Error()})
-			continue
 		}
-		result.Observations = append(result.Observations, collected.observed...)
 	}
 
 	firstSamples := make(map[string]signal.Observation)
@@ -123,7 +122,6 @@ func (p *Planner) Run(ctx context.Context, caps capability.Set, collectors []col
 		for _, collected := range firstResults {
 			if collected.err != nil {
 				result.Warnings = append(result.Warnings, Warning{CollectorID: collected.descriptor.ID, Reason: collected.err.Error()})
-				continue
 			}
 			for _, observation := range collected.observed {
 				firstSamples[collected.descriptor.ID+"|"+identity(observation)] = observation
@@ -139,11 +137,10 @@ func (p *Planner) Run(ctx context.Context, caps capability.Set, collectors []col
 			return Result{}, err
 		}
 		for _, collected := range secondResults {
+			result.Observations = append(result.Observations, collected.observed...)
 			if collected.err != nil {
 				result.Warnings = append(result.Warnings, Warning{CollectorID: collected.descriptor.ID, Reason: collected.err.Error()})
-				continue
 			}
-			result.Observations = append(result.Observations, collected.observed...)
 			for _, current := range collected.observed {
 				previous, ok := firstSamples[collected.descriptor.ID+"|"+identity(current)]
 				if !ok {

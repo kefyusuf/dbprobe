@@ -48,6 +48,47 @@ func TestPersistHistoryStoresVersionedSnapshot(t *testing.T) {
 	}
 }
 
+type recordingHistoryStore struct {
+	saves int
+}
+
+func (s *recordingHistoryStore) Save(context.Context, temporal.Snapshot) error {
+	s.saves++
+	return nil
+}
+func (*recordingHistoryStore) Latest(context.Context, string) (*temporal.Snapshot, error) {
+	return nil, temporal.ErrSnapshotNotFound
+}
+func (*recordingHistoryStore) Previous(context.Context, string, time.Time) (*temporal.Snapshot, error) {
+	return nil, temporal.ErrSnapshotNotFound
+}
+func (*recordingHistoryStore) List(context.Context, string, int) ([]temporal.Snapshot, error) {
+	return nil, temporal.ErrSnapshotNotFound
+}
+
+func TestPersistHistorySkipsIncompleteInspectionEvidence(t *testing.T) {
+	store := &recordingHistoryStore{}
+	report := Report{
+		CollectedAt: time.Now().UTC(),
+		Target: adapter.TargetMetadata{
+			Engine:      "mysql",
+			AdapterID:   "mysql",
+			Fingerprint: "target",
+		},
+		Warnings: []collection.Warning{{
+			CollectorID: "mysql.schema.primary_keys",
+			Reason:      "primary-key scan truncated after 100 tables",
+		}},
+	}
+	warning := persistHistory(context.Background(), store, report, "0.1.0")
+	if store.saves != 0 {
+		t.Fatalf("history saves=%d want=0", store.saves)
+	}
+	if warning == nil || warning.CollectorID != "history" || warning.Reason != "snapshot persistence skipped because inspection evidence is incomplete" {
+		t.Fatalf("warning=%#v", warning)
+	}
+}
+
 type failingHistoryStore struct{}
 
 func (failingHistoryStore) Save(context.Context, temporal.Snapshot) error {
