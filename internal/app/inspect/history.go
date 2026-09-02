@@ -11,6 +11,9 @@ func persistHistory(ctx context.Context, store temporal.Store, report Report, ad
 	if store == nil {
 		return nil
 	}
+	if len(report.Warnings) > 0 {
+		return &collection.Warning{CollectorID: "history", Reason: "snapshot persistence skipped because inspection evidence is incomplete"}
+	}
 	snapshot, err := temporal.NewSnapshot(temporal.SnapshotInput{
 		TargetFingerprint: report.Target.Fingerprint,
 		Engine:            report.Target.Engine,
