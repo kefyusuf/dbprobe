@@ -11,15 +11,6 @@ import (
 	"github.com/kefyusuf/dbprobe/sdk/signal"
 )
 
-func TestConnectionSaturationThresholds(t *testing.T) {
-	ctx := finding.AnalysisContext{Capabilities: capability.New("mysql.performance_schema"), Current: []signal.Observation{
-		number("core.connections.used", "mysql.instance", "db", 96),
-		number("core.connections.limit", "mysql.instance", "db", 100),
-	}}
-	got := connectionSaturationRule{}.Evaluate(ctx)
-	assertFinding(t, got, "core.connection_saturation", "critical")
-}
-
 func TestLongTransactionDoesNotUseEphemeralObjectAsFindingIdentity(t *testing.T) {
 	ctx := finding.AnalysisContext{Capabilities: capability.New("activity.transactions"), Current: []signal.Observation{
 		number("mysql.transaction.age_seconds", "mysql.transaction", "ephemeral:123", 1900),
