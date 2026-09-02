@@ -2,7 +2,7 @@ name: ci
 
 on:
   push:
-    branches: [main]
+    branches: [main, integration-v0.1]
   pull_request:
 
 permissions:
