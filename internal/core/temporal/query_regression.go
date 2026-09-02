@@ -81,9 +81,9 @@ func DetectQueryRegressions(previous, current Snapshot, metrics MetricPair, poli
 }
 
 type metricWindow struct {
-	ref                   object.Ref
-	calls, latency        float64
-	hasCalls, hasLatency  bool
+	ref                  object.Ref
+	calls, latency       float64
+	hasCalls, hasLatency bool
 }
 
 func sampledMetrics(deltas []signal.Delta, pair MetricPair) map[string]metricWindow {

@@ -33,7 +33,9 @@ type mongoProbeAdapter struct {
 func (a *mongoProbeAdapter) Metadata() adapter.Metadata {
 	return adapter.Metadata{ID: "mongodb-probe", Name: "MongoDB Probe", Version: "0.1.0", ContractVersion: adapter.ContractVersion}
 }
-func (a *mongoProbeAdapter) Match(spec adapter.TargetSpec) bool { return spec.Scheme == "mongodb-probe" }
+func (a *mongoProbeAdapter) Match(spec adapter.TargetSpec) bool {
+	return spec.Scheme == "mongodb-probe"
+}
 func (a *mongoProbeAdapter) Open(context.Context, adapter.TargetSpec, adapter.OpenOptions) (adapter.Runtime, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()

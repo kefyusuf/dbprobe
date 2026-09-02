@@ -2,7 +2,7 @@
 
 Database intelligence runtime for deterministic, read-only diagnostics, temporal analysis, CI/agent surfaces, and database-specific intelligence behind modular adapters.
 
-> **v0.1 integration status:** source-level integration is in progress on `integration-v0.1`. Foundation, bounded collection concurrency, generic core findings, temporal intelligence, driver-independent SQLite baseline persistence, the MySQL MVP adapter, MySQL schema fingerprinting, safe plan-only EXPLAIN, and a test-only MongoDB semantic probe are integrated. Full Go 1.25, concrete SQLite-driver reopen tests, and Docker MySQL 8.0/8.4 acceptance are still pending because the current execution environment has no usable GitHub Actions quota, outbound dependency access, or Docker runtime.
+> **v0.1 integration status:** source integration continues on `integration-v0.1`. Foundation, bounded collection concurrency, generic core findings, temporal intelligence, driver-independent SQLite baseline persistence, driver-independent history-aware CLI orchestration, the MySQL MVP adapter, MySQL schema fingerprinting, safe plan-only EXPLAIN, and a test-only MongoDB semantic probe are integrated. The current pre-driver tree passes the full Go 1.25 `make ci` gate and Cobra binary smoke tests. The principal remaining release gates are the concrete `modernc.org/sqlite` binding with live on-disk close/reopen verification, a final driver-inclusive Go 1.25 gate, and Docker acceptance against MySQL 8.0.46 and 8.4.11.
 
 ## Architecture
 
@@ -54,12 +54,21 @@ Current source-level persistence includes:
 - query-text sensitivity re-filtering at the persistence boundary;
 - 16 MiB serialized snapshot limit and 100,000 derived trend-row limit per snapshot;
 - owned-store lifecycle with a single-connection pool and idempotent close;
-- private data-directory defaults (`XDG_DATA_HOME`/macOS Application Support/Windows LOCALAPPDATA) and `dbprobe/dbprobe.db` namespace;
+- private data-directory defaults (`XDG_DATA_HOME`/macOS Application Support/Windows LOCALAPPDATA) and the `dbprobe/dbprobe.db` namespace;
 - best-effort private baseline-file permissions (`0600`) on supported platforms.
 
-The SQL migration/store behavior has also been exercised against SQLite 3.46.1 in the current environment, while Go store behavior and the `inspect -> history -> diff` application flow pass dependency-free normal and race tests.
+The concrete-driver-independent CLI layer is also complete:
 
-Concrete driver selection is intentionally isolated at the composition root. `docs/adr/ADR-013-sqlite-driver-selection.md` currently records `modernc.org/sqlite` as the provisional primary candidate and `github.com/ncruces/go-sqlite3` as the benchmark/fallback candidate. A concrete dependency is not pinned until a real Go 1.25 module-resolution and on-disk close/reopen gate can run.
+- `inspect` can receive an owned history-store factory and persist snapshots through the existing application service;
+- `diff` resolves the target through the adapter registry, reads the two latest compatible snapshots, and renders the versioned diff contract;
+- both commands validate their arguments before opening local history;
+- every opened history store is closed by the command orchestration boundary;
+- CLI and platform persistence use the same `datadir.BaselineDBPath()` source of truth;
+- the default driverless binary remains stateless and does not register `diff`, preventing a command that cannot yet open a real SQLite database from being advertised.
+
+The SQL migration/store behavior has been exercised against SQLite 3.46.1. The application-level `inspect -> history -> diff` flow passes normal and race tests, and the complete pre-driver repository passes Go 1.25 module, formatting, vet, normal-test, race-test, build, and CLI smoke gates.
+
+Concrete driver selection is intentionally isolated at the composition root. `docs/adr/ADR-013-sqlite-driver-selection.md` records `modernc.org/sqlite` as the provisional primary candidate and `github.com/ncruces/go-sqlite3` as the benchmark/fallback candidate. The next SQLite step is to pin the selected driver, provide the production history-store factory, run live on-disk close/reopen tests, and only then enable persistent history and `diff` in the default command graph.
 
 ### MySQL adapter
 
@@ -116,6 +125,14 @@ dbprobe explain 'mysql://dbprobe:password@127.0.0.1:3306/shop' \
 
 MySQL URI options are deliberately restricted to diagnostic connection settings such as `tls`, `timeout`, `readTimeout`, and `writeTimeout`. Options that expand driver behavior, including multi-statements and local-file access, are rejected.
 
+The source-level history-aware command graph is implemented but intentionally not exposed by the driverless production composition. Once the concrete SQLite binding passes its persistence gate, repeated inspections will populate the platform data file and the default CLI will expose:
+
+```bash
+dbprobe diff 'mysql://dbprobe:password@127.0.0.1:3306/shop' --format=json
+```
+
+This staged composition prevents the CLI from presenting persistent behavior before a verified concrete SQLite connector exists.
+
 ## Safety and privacy
 
 - Deterministic code owns diagnosis; AI is explanatory only.
@@ -142,6 +159,8 @@ Full local gate:
 make ci
 ```
 
+The current pre-driver integration tree passes this gate with Go 1.25, including module tidiness, repository formatting, `go vet`, normal tests, race tests, binary build, and CLI smoke coverage.
+
 MySQL integration gate:
 
 ```bash
@@ -150,18 +169,17 @@ make test-mysql
 
 The MySQL matrix uses pinned MySQL 8.0.46 and 8.4.11 containers and is intended to verify read-only access, capability truthfulness, adapter contracts, schema fingerprint stability, sanitized plan output, versioned reports, and credential/privacy behavior.
 
-### Environment-pending acceptance
+### Remaining acceptance gates
 
-The following gates are intentionally not claimed as complete until the required environment is available:
+The following gates remain intentionally open:
 
 ```text
-Go 1.25: go mod tidy / gofmt / go vet / go test ./... / go test -race ./...
-Cobra CLI compile and smoke tests
+Pin modernc.org/sqlite and register its database/sql driver at the composition root
+Bind the default CLI to the owned SQLite history-store factory
+SQLite live Go on-disk create / save / close / reopen / diff verification
+Final driver-inclusive Go 1.25 make ci and binary smoke gate
 MySQL 8.0.46 Docker integration
 MySQL 8.4.11 Docker integration
-Concrete pure-Go SQLite driver module resolution
-SQLite live Go on-disk close/reopen persistence
-Persistent CLI history / dbprobe diff wiring
 ```
 
 See `docs/superpowers/specs/2026-08-21-dbprobe-v0.1-architecture-design.md`, `docs/adr/ADR-013-sqlite-driver-selection.md`, and the implementation plans under `docs/superpowers/plans/` for the architecture contract, locked decisions and execution details.

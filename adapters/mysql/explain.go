@@ -14,7 +14,7 @@ import (
 
 const (
 	maxExplainStatementBytes = 64 << 10
-	explainTimeout            = 5 * time.Second
+	explainTimeout           = 5 * time.Second
 )
 
 type explainExecutor interface {

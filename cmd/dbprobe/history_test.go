@@ -3,25 +3,25 @@ package main
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/kefyusuf/dbprobe/internal/core/temporal"
+	"github.com/kefyusuf/dbprobe/internal/platform/datadir"
 	"github.com/kefyusuf/dbprobe/sdk/adapter"
 )
 
-func TestHistoryPathUsesDbprobeDirectory(t *testing.T) {
-	got, err := historyPath("/tmp/config")
+func TestDefaultHistoryPathUsesPlatformDataDirectory(t *testing.T) {
+	got, err := defaultHistoryPath()
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := filepath.Join("/tmp/config", "dbprobe", "history.db")
+	want, err := datadir.BaselineDBPath()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got != want {
 		t.Fatalf("got=%q want=%q", got, want)
-	}
-	if _, err := historyPath("   "); err == nil {
-		t.Fatal("expected empty config dir error")
 	}
 }
 

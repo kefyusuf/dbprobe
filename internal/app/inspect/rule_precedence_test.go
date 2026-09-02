@@ -56,7 +56,7 @@ func (precedenceCollector) Collect(_ context.Context, request collector.Request)
 
 type duplicateCoreRule struct{}
 
-func (duplicateCoreRule) ID() finding.ID { return "core.connection_saturation" }
+func (duplicateCoreRule) ID() finding.ID                    { return "core.connection_saturation" }
 func (duplicateCoreRule) Requires() []capability.Capability { return nil }
 func (duplicateCoreRule) Evaluate(finding.AnalysisContext) []finding.Finding {
 	panic("adapter duplicate core rule must not be evaluated")
