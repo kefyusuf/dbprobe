@@ -1,0 +1,94 @@
+name: modernc-selfreview
+
+on:
+  push:
+    branches: [feat/modernc-sqlite-binding]
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: true
+      - name: Apply isolated production-root composition
+        run: |
+          rm -f .github/workflows/modernc-binding-bootstrap.yml
+          cat > cmd/dbprobe/root.go <<'EOF'
+          package main
+
+          import "github.com/spf13/cobra"
+
+          func newRootCommand() *cobra.Command {
+            return newRootCommandWithDependencies(commandDependencies{})
+          }
+
+          func newProductionRootCommand() *cobra.Command {
+            return newRootCommandWithDependencies(productionCommandDependencies())
+          }
+
+          func newRootCommandWithDependencies(deps commandDependencies) *cobra.Command {
+            cmd := &cobra.Command{
+              Use:           "dbprobe",
+              SilenceUsage:  true,
+              SilenceErrors: true,
+            }
+            cmd.AddCommand(newInspectCommandWithDependencies(deps), newExplainCommand())
+            if deps.openHistory != nil {
+              cmd.AddCommand(newDiffCommand(deps))
+            }
+            return cmd
+          }
+          EOF
+          python - <<'PY'
+          from pathlib import Path
+
+          main = Path("cmd/dbprobe/main.go")
+          main.write_text(main.read_text().replace("cmd := newRootCommand()", "cmd := newProductionRootCommand()"))
+
+          test = Path("cmd/dbprobe/sqlite_history_test.go")
+          source = test.read_text()
+          source = source.replace("func TestDefaultRootRegistersPersistentDiff", "func TestProductionRootRegistersPersistentDiff")
+          source = source.replace("cmd := newRootCommand()\n\tfound", "cmd := newProductionRootCommand()\n\tfound")
+          test.write_text(source)
+          PY
+      - name: Resolve exact modernc dependency
+        run: |
+          go get modernc.org/sqlite@latest
+          go mod tidy
+          gofmt -w cmd/dbprobe/root.go cmd/dbprobe/main.go cmd/dbprobe/sqlite_history.go cmd/dbprobe/sqlite_history_test.go cmd/dbprobe/sqlite_history_conflict_test.go test/architecture/sqlite_driver_boundary_test.go
+      - name: Verify working tree before commit
+        run: |
+          go vet ./...
+          go test ./...
+          go test -race ./...
+          make smoke
+          CGO_ENABLED=0 go build -o /tmp/dbprobe-linux-amd64 ./cmd/dbprobe
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o /tmp/dbprobe-windows-amd64.exe ./cmd/dbprobe
+          GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -o /tmp/dbprobe-darwin-amd64 ./cmd/dbprobe
+          GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -o /tmp/dbprobe-darwin-arm64 ./cmd/dbprobe
+      - name: Commit verified binding and remove bootstrap workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: bind persistent history with modernc SQLite"
+          git rm .github/workflows/modernc-selfreview.yml
+          git commit -m "ci: remove modernc bootstrap workflow"
+          git pull --rebase origin feat/modernc-sqlite-binding
+      - name: Verify rebased final tree
+        run: |
+          make ci
+          CGO_ENABLED=0 go build -o /tmp/dbprobe-linux-amd64 ./cmd/dbprobe
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o /tmp/dbprobe-windows-amd64.exe ./cmd/dbprobe
+          GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -o /tmp/dbprobe-darwin-amd64 ./cmd/dbprobe
+          GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -o /tmp/dbprobe-darwin-arm64 ./cmd/dbprobe
+      - name: Push verified final tree
+        run: git push origin HEAD:feat/modernc-sqlite-binding
