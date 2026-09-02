@@ -2,7 +2,6 @@ package probe
 
 import (
 	"context"
-	"database/sql/driver"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -18,7 +17,7 @@ import (
 const observationsPerSnapshot = 32
 const deltasPerSnapshot = 16
 
-type ConnectorFactory func(string) (driver.Connector, error)
+type ConnectorFactory = platformsqlite.ConnectorFactory
 
 type Result struct {
 	Driver                  string `json:"driver"`
