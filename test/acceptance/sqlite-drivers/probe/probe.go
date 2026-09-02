@@ -30,7 +30,11 @@ type Result struct {
 	OpenMigrateNS           int64  `json:"open_migrate_ns"`
 	WriteNS                 int64  `json:"write_ns"`
 	WritePerSnapshotNS      int64  `json:"write_per_snapshot_ns"`
+	DuplicateCheckNS        int64  `json:"duplicate_check_ns"`
+	InitialCloseNS          int64  `json:"initial_close_ns"`
 	ReopenReadNS            int64  `json:"reopen_read_ns"`
+	ConflictCheckNS         int64  `json:"conflict_check_ns"`
+	ReopenCloseNS           int64  `json:"reopen_close_ns"`
 	TotalNS                 int64  `json:"total_ns"`
 	DatabaseBytes           int64  `json:"database_bytes"`
 }
@@ -73,16 +77,22 @@ func Run(driverName string, factory ConnectorFactory, snapshotCount int) (Result
 			return Result{}, fmt.Errorf("save %s snapshot %d: %w", driverName, i, err)
 		}
 	}
+	writeDuration := time.Since(writeStarted)
+
+	duplicateStarted := time.Now()
 	if err := store.Save(ctx, snapshots[0]); err != nil {
 		_ = store.Close()
 		return Result{}, fmt.Errorf("repeat %s snapshot: %w", driverName, err)
 	}
-	writeDuration := time.Since(writeStarted)
+	duplicateDuration := time.Since(duplicateStarted)
+
+	initialCloseStarted := time.Now()
 	if err := store.Close(); err != nil {
 		return Result{}, fmt.Errorf("close %s store: %w", driverName, err)
 	}
+	initialCloseDuration := time.Since(initialCloseStarted)
 
-	reopenStarted := time.Now()
+	reopenReadStarted := time.Now()
 	reopened, err := platformsqlite.Open(ctx, path, factory)
 	if err != nil {
 		return Result{}, fmt.Errorf("reopen %s store: %w", driverName, err)
@@ -114,16 +124,22 @@ func Run(driverName string, factory ConnectorFactory, snapshotCount int) (Result
 		_ = reopened.Close()
 		return Result{}, fmt.Errorf("%s snapshot count=%d want=%d", driverName, len(items), snapshotCount)
 	}
+	reopenReadDuration := time.Since(reopenReadStarted)
+
 	conflict := snapshots[0]
 	conflict.AdapterVersion = "conflicting-version"
+	conflictStarted := time.Now()
 	if err := reopened.Save(ctx, conflict); err == nil {
 		_ = reopened.Close()
 		return Result{}, fmt.Errorf("%s accepted conflicting snapshot payload", driverName)
 	}
+	conflictDuration := time.Since(conflictStarted)
+
+	reopenCloseStarted := time.Now()
 	if err := reopened.Close(); err != nil {
 		return Result{}, fmt.Errorf("close reopened %s store: %w", driverName, err)
 	}
-	reopenReadDuration := time.Since(reopenStarted)
+	reopenCloseDuration := time.Since(reopenCloseStarted)
 
 	info, err := os.Stat(path)
 	if err != nil {
@@ -140,7 +156,11 @@ func Run(driverName string, factory ConnectorFactory, snapshotCount int) (Result
 		OpenMigrateNS:           openDuration.Nanoseconds(),
 		WriteNS:                 writeDuration.Nanoseconds(),
 		WritePerSnapshotNS:      writeDuration.Nanoseconds() / int64(snapshotCount),
+		DuplicateCheckNS:        duplicateDuration.Nanoseconds(),
+		InitialCloseNS:          initialCloseDuration.Nanoseconds(),
 		ReopenReadNS:            reopenReadDuration.Nanoseconds(),
+		ConflictCheckNS:         conflictDuration.Nanoseconds(),
+		ReopenCloseNS:           reopenCloseDuration.Nanoseconds(),
 		TotalNS:                 time.Since(totalStarted).Nanoseconds(),
 		DatabaseBytes:           info.Size(),
 	}, nil
