@@ -32,6 +32,9 @@ func Open(ctx context.Context, path string, factory ConnectorFactory) (*OwnedSto
 	if err := os.MkdirAll(filepath.Dir(cleanPath), 0o700); err != nil {
 		return nil, fmt.Errorf("create SQLite baseline directory: %w", err)
 	}
+	if err := secureDatabaseFile(cleanPath); err != nil {
+		return nil, err
+	}
 	connector, err := factory(cleanPath)
 	if err != nil {
 		return nil, fmt.Errorf("create SQLite connector: %w", err)
@@ -48,16 +51,31 @@ func Open(ctx context.Context, path string, factory ConnectorFactory) (*OwnedSto
 		_ = db.Close()
 		return nil, err
 	}
-	if _, err := os.Stat(cleanPath); err == nil {
-		if err := os.Chmod(cleanPath, 0o600); err != nil {
-			_ = db.Close()
-			return nil, fmt.Errorf("secure SQLite baseline file permissions: %w", err)
-		}
-	} else if !os.IsNotExist(err) {
+	if err := secureDatabaseFile(cleanPath); err != nil {
 		_ = db.Close()
-		return nil, fmt.Errorf("inspect SQLite baseline file: %w", err)
+		return nil, err
 	}
 	return &OwnedStore{Store: store, db: db}, nil
+}
+
+func secureDatabaseFile(path string) error {
+	info, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect SQLite baseline file: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("SQLite baseline path must not be a symbolic link")
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("SQLite baseline path must be a regular file")
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		return fmt.Errorf("secure SQLite baseline file permissions: %w", err)
+	}
+	return nil
 }
 
 func (s *OwnedStore) Close() error {
