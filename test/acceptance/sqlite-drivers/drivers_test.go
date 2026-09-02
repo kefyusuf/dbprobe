@@ -26,6 +26,19 @@ func TestCandidateDriversSatisfyTheSamePersistenceContract(t *testing.T) {
 			if result.Snapshots != 5 || result.DatabaseBytes <= 0 {
 				t.Fatalf("result=%#v", result)
 			}
+			for name, duration := range map[string]int64{
+				"open/migrate":    result.OpenMigrateNS,
+				"normal writes":   result.WriteNS,
+				"duplicate check": result.DuplicateCheckNS,
+				"initial close":   result.InitialCloseNS,
+				"reopen/read":     result.ReopenReadNS,
+				"conflict check":  result.ConflictCheckNS,
+				"reopen close":    result.ReopenCloseNS,
+			} {
+				if duration <= 0 {
+					t.Fatalf("%s duration=%d; result=%#v", name, duration, result)
+				}
+			}
 		})
 	}
 }
