@@ -41,3 +41,29 @@ func queryRegressionMetrics(target adapter.TargetMetadata) *temporal.MetricPair 
 		return nil
 	}
 }
+
+func withHistoryStore(ctx context.Context, path string, factory historyStoreFactory, operation func(temporal.Store) error) (err error) {
+	if strings.TrimSpace(path) == "" {
+		return fmt.Errorf("history database path is required")
+	}
+	if factory == nil {
+		return fmt.Errorf("history store factory is required")
+	}
+	if operation == nil {
+		return fmt.Errorf("history operation is required")
+	}
+	store, err := factory(ctx, path)
+	if err != nil {
+		return err
+	}
+	if store == nil {
+		return fmt.Errorf("history store factory returned nil")
+	}
+	defer func() {
+		closeErr := store.Close()
+		if err == nil && closeErr != nil {
+			err = fmt.Errorf("close history store: %w", closeErr)
+		}
+	}()
+	return operation(store)
+}
