@@ -3,11 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/kefyusuf/dbprobe/internal/core/temporal"
+	"github.com/kefyusuf/dbprobe/internal/platform/datadir"
 	"github.com/kefyusuf/dbprobe/sdk/adapter"
 )
 
@@ -18,19 +17,28 @@ type ownedHistoryStore interface {
 
 type historyStoreFactory func(context.Context, string) (ownedHistoryStore, error)
 
-func defaultHistoryPath() (string, error) {
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve user config directory: %w", err)
-	}
-	return historyPath(dir)
+type commandDependencies struct {
+	historyPath func() (string, error)
+	openHistory historyStoreFactory
 }
 
-func historyPath(configDir string) (string, error) {
-	if strings.TrimSpace(configDir) == "" {
-		return "", fmt.Errorf("user config directory is required")
+func defaultHistoryPath() (string, error) {
+	return datadir.BaselineDBPath()
+}
+
+func (d commandDependencies) resolveHistoryPath() (string, error) {
+	resolver := d.historyPath
+	if resolver == nil {
+		resolver = defaultHistoryPath
 	}
-	return filepath.Join(configDir, "dbprobe", "history.db"), nil
+	path, err := resolver()
+	if err != nil {
+		return "", fmt.Errorf("resolve history database path: %w", err)
+	}
+	if strings.TrimSpace(path) == "" {
+		return "", fmt.Errorf("history database path is required")
+	}
+	return path, nil
 }
 
 func queryRegressionMetrics(target adapter.TargetMetadata) *temporal.MetricPair {

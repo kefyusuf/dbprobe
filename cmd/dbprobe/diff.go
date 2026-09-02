@@ -3,52 +3,42 @@ package main
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/kefyusuf/dbprobe/internal/core/temporal"
 	"github.com/spf13/cobra"
 )
 
-func newInspectCommand() *cobra.Command {
-	return newInspectCommandWithDependencies(commandDependencies{})
-}
-
-func newInspectCommandWithDependencies(deps commandDependencies) *cobra.Command {
+func newDiffCommand(deps commandDependencies) *cobra.Command {
 	var format string
-	var sampleWindow time.Duration
 
 	cmd := &cobra.Command{
-		Use:   "inspect <target>",
-		Short: "Inspect a database target",
+		Use:   "diff <target>",
+		Short: "Compare the two latest stored snapshots for a target",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if strings.TrimSpace(args[0]) == "" {
-				return fmt.Errorf("inspect target is required")
+				return fmt.Errorf("diff target is required")
 			}
 			if format != "text" && format != "json" {
 				return fmt.Errorf("unsupported format %q: expected text or json", format)
 			}
-			if sampleWindow <= 0 {
-				return fmt.Errorf("sample window must be positive")
+			if deps.openHistory == nil {
+				return fmt.Errorf("persistent history is not configured")
 			}
 
 			registry, err := newAdapterRegistry()
 			if err != nil {
 				return err
 			}
-			if deps.openHistory == nil {
-				return runInspect(cmd.Context(), cmd.OutOrStdout(), args[0], format, sampleWindow, registry, nil)
-			}
 			path, err := deps.resolveHistoryPath()
 			if err != nil {
 				return err
 			}
 			return withHistoryStore(cmd.Context(), path, deps.openHistory, func(store temporal.Store) error {
-				return runInspect(cmd.Context(), cmd.OutOrStdout(), args[0], format, sampleWindow, registry, store)
+				return runDiff(cmd.Context(), cmd.OutOrStdout(), args[0], format, registry, store)
 			})
 		},
 	}
 	cmd.Flags().StringVar(&format, "format", "text", "output format: text or json")
-	cmd.Flags().DurationVar(&sampleWindow, "sample-window", time.Second, "counter sampling window")
 	return cmd
 }
