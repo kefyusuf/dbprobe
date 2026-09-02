@@ -76,28 +76,32 @@ func TestInspectContinuesWhenLocalHistoryCannotOpen(t *testing.T) {
 			if err := cmd.Execute(); err != nil {
 				t.Fatalf("inspect error=%v stderr=%q", err, stderr.String())
 			}
-
-			var report struct {
-				SchemaVersion string `json:"schema_version"`
-				Warnings      []struct {
-					CollectorID string `json:"collector_id"`
-					Reason      string `json:"reason"`
-				} `json:"warnings"`
-			}
-			if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
-				t.Fatalf("invalid JSON: %v\n%s", err, stdout.String())
-			}
-			if report.SchemaVersion != "dbprobe.inspect/v1alpha1" {
-				t.Fatalf("schema_version=%q", report.SchemaVersion)
-			}
-			if len(report.Warnings) != 1 || report.Warnings[0].CollectorID != "history" || report.Warnings[0].Reason != "local history unavailable; inspection was not persisted" {
-				t.Fatalf("warnings=%#v", report.Warnings)
-			}
-			if strings.Contains(stdout.String(), "sensitive") || strings.Contains(stderr.String(), "sensitive") {
-				t.Fatalf("history error details leaked: stdout=%q stderr=%q", stdout.String(), stderr.String())
-			}
+			assertHistoryWarning(t, stdout.String(), stderr.String())
 		})
 	}
+}
+
+func TestInspectContinuesWhenLocalHistoryCannotClose(t *testing.T) {
+	store := &fakeOwnedHistoryStore{closeErr: errors.New("sensitive close failure")}
+	deps := commandDependencies{
+		historyPath: func() (string, error) { return filepath.Join(t.TempDir(), "dbprobe.db"), nil },
+		openHistory: func(context.Context, string) (ownedHistoryStore, error) {
+			return store, nil
+		},
+	}
+	cmd := newRootCommandWithDependencies(deps)
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"inspect", "fake://local", "--format=json", "--sample-window=1ms"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("inspect error=%v stderr=%q", err, stderr.String())
+	}
+	if store.closed != 1 {
+		t.Fatalf("history close calls=%d want=1", store.closed)
+	}
+	assertHistoryWarning(t, stdout.String(), stderr.String())
 }
 
 func TestDiffStillRequiresLocalHistory(t *testing.T) {
@@ -113,6 +117,29 @@ func TestDiffStillRequiresLocalHistory(t *testing.T) {
 	cmd.SetArgs([]string{"diff", "fake://local", "--format=json"})
 	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "history unavailable") {
 		t.Fatalf("diff error=%v", err)
+	}
+}
+
+func assertHistoryWarning(t *testing.T, stdout, stderr string) {
+	t.Helper()
+	var report struct {
+		SchemaVersion string `json:"schema_version"`
+		Warnings      []struct {
+			CollectorID string `json:"collector_id"`
+			Reason      string `json:"reason"`
+		} `json:"warnings"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &report); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, stdout)
+	}
+	if report.SchemaVersion != "dbprobe.inspect/v1alpha1" {
+		t.Fatalf("schema_version=%q", report.SchemaVersion)
+	}
+	if len(report.Warnings) != 1 || report.Warnings[0].CollectorID != "history" || report.Warnings[0].Reason != "local history unavailable; inspection was not persisted" {
+		t.Fatalf("warnings=%#v", report.Warnings)
+	}
+	if strings.Contains(stdout, "sensitive") || strings.Contains(stderr, "sensitive") {
+		t.Fatalf("history error details leaked: stdout=%q stderr=%q", stdout, stderr)
 	}
 }
 
