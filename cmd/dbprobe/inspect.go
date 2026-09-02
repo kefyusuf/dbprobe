@@ -5,9 +5,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kefyusuf/dbprobe/internal/core/collection"
 	"github.com/kefyusuf/dbprobe/internal/core/temporal"
 	"github.com/spf13/cobra"
 )
+
+var historyUnavailableWarning = collection.Warning{
+	CollectorID: "history",
+	Reason:      "local history unavailable; inspection was not persisted",
+}
 
 func newInspectCommand() *cobra.Command {
 	return newInspectCommandWithDependencies(commandDependencies{})
@@ -36,14 +42,21 @@ func newInspectCommandWithDependencies(deps commandDependencies) *cobra.Command 
 			if err != nil {
 				return err
 			}
+			runWithoutHistory := func() error {
+				return runInspect(cmd.Context(), cmd.OutOrStdout(), args[0], format, sampleWindow, registry, nil, historyUnavailableWarning)
+			}
 			if deps.openHistory == nil {
 				return runInspect(cmd.Context(), cmd.OutOrStdout(), args[0], format, sampleWindow, registry, nil)
 			}
 			path, err := deps.resolveHistoryPath()
 			if err != nil {
-				return err
+				return runWithoutHistory()
 			}
-			return withHistoryStore(cmd.Context(), path, deps.openHistory, func(store temporal.Store) error {
+			store, err := openHistoryStore(cmd.Context(), path, deps.openHistory)
+			if err != nil {
+				return runWithoutHistory()
+			}
+			return withOpenedHistoryStore(store, func(store temporal.Store) error {
 				return runInspect(cmd.Context(), cmd.OutOrStdout(), args[0], format, sampleWindow, registry, store)
 			})
 		},
