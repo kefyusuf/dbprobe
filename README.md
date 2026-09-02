@@ -2,7 +2,7 @@
 
 Database intelligence runtime for deterministic, read-only diagnostics, temporal analysis, CI/agent surfaces, and database-specific intelligence behind modular adapters.
 
-> **v0.1 integration status:** source integration continues on `integration-v0.1`. Foundation, bounded collection concurrency, generic core findings, temporal intelligence, driver-independent SQLite baseline persistence, driver-independent history-aware CLI orchestration, the MySQL MVP adapter, MySQL schema fingerprinting, safe plan-only EXPLAIN, and a test-only MongoDB semantic probe are integrated. The current pre-driver tree passes the full Go 1.25 `make ci` gate and Cobra binary smoke tests. The principal remaining release gates are the concrete `modernc.org/sqlite` binding with live on-disk close/reopen verification, a final driver-inclusive Go 1.25 gate, and Docker acceptance against MySQL 8.0.46 and 8.4.11.
+> **v0.1 integration candidate:** bounded collection, generic core findings, temporal intelligence, persistent SQLite history, the MySQL 8.0/8.4 adapter, structural schema fingerprinting, safe plan-only EXPLAIN, and the test-only MongoDB semantic probe are integrated. The candidate passes the complete Go 1.25 normal/race/build/smoke gate, CGo-free Linux/Windows/macOS builds, live SQLite close/reopen acceptance, and the MySQL 8.0.46/8.4.11 Docker matrix. This is still an integration candidate, not a tagged release.
 
 ## Architecture
 
@@ -19,9 +19,13 @@ CLI / JSON / future MCP / AI explanation
               Adapter SDK
           /         |          \
        MySQL     Mongo probe   future adapters
+
+Local temporal persistence
+  internal/platform/sqlite            driver-independent store
+  internal/platform/sqlite/modernc    concrete CGo-free binding
 ```
 
-The shared core consumes capabilities, observations, deltas, findings, snapshots, and events. It does not branch on MySQL/PostgreSQL/MongoDB/Cassandra engine names.
+The shared core consumes capabilities, observations, deltas, findings, snapshots and events. It does not branch on MySQL/PostgreSQL/MongoDB/Cassandra engine names.
 
 The adapter SDK intentionally remains **v0.1**. The MongoDB semantic probe demonstrates that current contracts are not relational-only, but a real non-relational adapter and later distributed-database validation are still required before an Adapter Contract v1.0 promise.
 
@@ -32,57 +36,67 @@ The adapter SDK intentionally remains **v0.1**. The MongoDB semantic probe demon
 - capability-driven collectors;
 - bounded concurrent collection, default concurrency `4`;
 - centralized counter double-sampling and reset-safe deltas;
-- deterministic core + adapter-native findings;
-- core rule IDs take precedence over accidental adapter duplicates;
+- deterministic core and adapter-native findings;
+- authoritative generic `core.*` rules without adapter-local duplicates;
 - versioned inspect JSON: `dbprobe.inspect/v1alpha1`;
 - generic temporal snapshots, diffs, query regressions and bounded-time events;
-- in-memory and SQLite-backed baseline implementations behind the generic temporal store port;
+- in-memory and SQLite-backed temporal stores;
 - query-text persistence filtering.
 
-### SQLite temporal baseline
+### SQLite temporal history
 
-`internal/platform/sqlite` is a driver-independent `database/sql` persistence adapter. It does not import a concrete SQLite implementation.
+The driver-independent implementation under `internal/platform/sqlite` provides:
 
-Current source-level persistence includes:
-
-- versioned SQLite migration schema with `PRAGMA user_version`;
-- `foreign_keys=ON` and bounded busy timeout on every acquired connection;
-- atomic snapshot + derived trend-row transactions;
-- versioned JSON snapshot payloads plus normalized observation/delta trend indexes;
-- explicit `observation` vs `delta` metric kinds, preserving sampled rate/window data;
+- versioned migrations through `PRAGMA user_version`;
+- `foreign_keys=ON` and a 5-second busy timeout on every acquired connection;
+- atomic snapshot and derived trend-row transactions;
+- versioned JSON snapshot payloads and normalized observation/delta indexes;
+- explicit `observation` and `delta` metric kinds, including sampled rate/window semantics;
 - snapshot identity-collision and envelope/payload corruption checks;
 - query-text sensitivity re-filtering at the persistence boundary;
-- 16 MiB serialized snapshot limit and 100,000 derived trend-row limit per snapshot;
-- owned-store lifecycle with a single-connection pool and idempotent close;
-- private data-directory defaults (`XDG_DATA_HOME`/macOS Application Support/Windows LOCALAPPDATA) and the `dbprobe/dbprobe.db` namespace;
-- best-effort private baseline-file permissions (`0600`) on supported platforms.
+- a 16 MiB serialized snapshot limit and 100,000 trend-row limit per snapshot;
+- a one-connection pool, owned lifecycle and idempotent close;
+- private data-directory defaults and best-effort `0600` file permissions where supported.
 
-The concrete-driver-independent CLI layer is also complete:
+The default binding is **`modernc.org/sqlite v1.57.0`**. Its import is isolated to `internal/platform/sqlite/modernc`; architecture tests reject concrete-driver imports elsewhere in shared code. `github.com/ncruces/go-sqlite3 v0.35.3` remains a validated fallback in the isolated acceptance module and is not part of the production dependency graph.
 
-- `inspect` can receive an owned history-store factory and persist snapshots through the existing application service;
-- `diff` resolves the target through the adapter registry, reads the two latest compatible snapshots, and renders the versioned diff contract;
-- both commands validate their arguments before opening local history;
-- every opened history store is closed by the command orchestration boundary;
-- CLI and platform persistence use the same `datadir.BaselineDBPath()` source of truth;
-- the default driverless binary remains stateless and does not register `diff`, preventing a command that cannot yet open a real SQLite database from being advertised.
+The live modernc gate verifies:
 
-The SQL migration/store behavior has been exercised against SQLite 3.46.1. The application-level `inspect -> history -> diff` flow passes normal and race tests, and the complete pre-driver repository passes Go 1.25 module, formatting, vet, normal-test, race-test, build, and CLI smoke gates.
+- create, migrate, save, close and reopen;
+- `Latest`, `Previous` and `List`;
+- duplicate idempotency and conflicting-payload rejection;
+- connection-local PRAGMAs;
+- transaction rollback and foreign-key cascade;
+- default CLI `inspect -> inspect -> diff` persistence;
+- CGo-free Linux, Windows and macOS builds.
 
-Concrete driver selection is intentionally isolated at the composition root. `docs/adr/ADR-013-sqlite-driver-selection.md` records `modernc.org/sqlite` as the provisional primary candidate and `github.com/ncruces/go-sqlite3` as the benchmark/fallback candidate. The next SQLite step is to pin the selected driver, provide the production history-store factory, run live on-disk close/reopen tests, and only then enable persistent history and `diff` in the default command graph.
+The candidate comparison and decision rationale are recorded in `docs/benchmarks/2026-09-02-sqlite-driver-selection.md` and `docs/adr/ADR-013-sqlite-driver-selection.md`.
+
+### History availability semantics
+
+`dbprobe inspect` treats local history as optional operational infrastructure:
+
+- when the history path resolves and SQLite opens, the inspection snapshot is persisted;
+- when path resolution or store opening fails, inspection still runs and emits a generic `history` warning;
+- underlying local paths and database-open errors are not copied into the report;
+- an inspection or close failure is not retried, preventing duplicate target collection;
+- `dbprobe diff` remains strict and returns an error when history is unavailable because no meaningful comparison can be produced.
 
 ### MySQL adapter
 
-Primary production target is MySQL **8.4 LTS**. MySQL **8.0.46** remains in the integration matrix as legacy compatibility coverage.
+The primary production target is MySQL **8.4 LTS**. MySQL **8.0.46** remains in the acceptance matrix as legacy compatibility coverage.
 
-The adapter currently includes:
+The adapter includes:
 
 - bounded connection runtime and stable target fingerprinting;
-- Performance Schema / Information Schema capability discovery;
+- Performance Schema and Information Schema capability discovery;
 - connection, query digest, index, table, transaction, lock, replication, buffer-pool and InnoDB telemetry;
 - long-transaction, lock-wait, blocking-chain, query amplification/full-scan, index, replication, buffer-pool, deadlock, redo/temp-table and purge/history-list findings;
 - active replication apply-lag measurement that excludes intentional replication delay;
 - structural schema fingerprinting;
 - safe plan-only MySQL EXPLAIN.
+
+The MySQL 8.0.46/8.4.11 Docker gate verifies adapter contracts, capability truthfulness, schema fingerprint stability, sanitized plans, credential/privacy behavior and two persisted MySQL inspections followed by `dbprobe diff`.
 
 ### Structural schema fingerprint
 
@@ -95,17 +109,15 @@ v1:sha256:<64 lowercase hex>
 
 Fingerprint v1 covers tables, columns, indexes, key/constraint relationships, CHECK clauses and foreign-key referential actions. Raw defaults, generated expressions, CHECK clauses and referential definitions are hash inputs only; they are not emitted as observations.
 
-Resource bounds are fail-closed: 1 MiB per metadata field, 4 MiB per canonical record, 100,000 rows per metadata group, and 64 MiB total canonical metadata.
+Resource bounds are fail-closed: 1 MiB per metadata field, 4 MiB per canonical record, 100,000 rows per metadata group and 64 MiB total canonical metadata.
 
 ## CLI
 
-Inspect a fake target:
+### Inspect
 
 ```bash
 dbprobe inspect fake://local
 ```
-
-Inspect MySQL:
 
 ```bash
 dbprobe inspect 'mysql://dbprobe:password@127.0.0.1:3306/shop' \
@@ -113,7 +125,29 @@ dbprobe inspect 'mysql://dbprobe:password@127.0.0.1:3306/shop' \
   --sample-window=1s
 ```
 
-Request an estimated, sanitized MySQL plan:
+Successful inspections are persisted automatically to the platform data file:
+
+| Platform | Default location |
+|---|---|
+| Linux | `$XDG_DATA_HOME/dbprobe/dbprobe.db`, or `~/.local/share/dbprobe/dbprobe.db` |
+| macOS | `~/Library/Application Support/dbprobe/dbprobe.db` |
+| Windows | `%LOCALAPPDATA%\dbprobe\dbprobe.db` |
+
+### Diff
+
+After at least two inspections of the same target:
+
+```bash
+dbprobe diff 'mysql://dbprobe:password@127.0.0.1:3306/shop'
+```
+
+```bash
+dbprobe diff 'mysql://dbprobe:password@127.0.0.1:3306/shop' --format=json
+```
+
+The JSON contract is versioned as `dbprobe.diff/v1alpha1`.
+
+### Explain
 
 ```bash
 dbprobe explain 'mysql://dbprobe:password@127.0.0.1:3306/shop' \
@@ -121,17 +155,9 @@ dbprobe explain 'mysql://dbprobe:password@127.0.0.1:3306/shop' \
   --format=json
 ```
 
-`dbprobe explain` does **not** use `EXPLAIN ANALYZE`. MySQL plan inspection accepts one conservative `SELECT`, runs `EXPLAIN FORMAT=JSON` inside a bounded read-only transaction, rolls it back, and sanitizes the JSON plan before rendering. Literal conditions and unknown scalar plan fields are not emitted.
+`dbprobe explain` does **not** use `EXPLAIN ANALYZE`. It accepts one conservative `SELECT`, runs `EXPLAIN FORMAT=JSON` inside a bounded read-only transaction, rolls it back and sanitizes the JSON plan before rendering. Literal conditions and unknown scalar plan fields are not emitted.
 
-MySQL URI options are deliberately restricted to diagnostic connection settings such as `tls`, `timeout`, `readTimeout`, and `writeTimeout`. Options that expand driver behavior, including multi-statements and local-file access, are rejected.
-
-The source-level history-aware command graph is implemented but intentionally not exposed by the driverless production composition. Once the concrete SQLite binding passes its persistence gate, repeated inspections will populate the platform data file and the default CLI will expose:
-
-```bash
-dbprobe diff 'mysql://dbprobe:password@127.0.0.1:3306/shop' --format=json
-```
-
-This staged composition prevents the CLI from presenting persistent behavior before a verified concrete SQLite connector exists.
+MySQL URI options are restricted to diagnostic connection settings such as `tls`, `timeout`, `readTimeout` and `writeTimeout`. Options that expand driver behavior, including multi-statements and local-file access, are rejected.
 
 ## Safety and privacy
 
@@ -146,6 +172,7 @@ This staged composition prevents the CLI from presenting persistent behavior bef
 - Missing privileges reduce advertised capabilities instead of pretending visibility is complete.
 - Temporal persistence filters raw query-text sensitivity classes.
 - SQLite snapshot persistence is size-bounded and fails closed on identity/envelope corruption.
+- Local-history open failures are represented by a generic warning without leaking filesystem or driver details.
 
 ## Non-relational architecture probe
 
@@ -153,33 +180,42 @@ This staged composition prevents the CLI from presenting persistent behavior bef
 
 ## Development
 
-Full local gate:
+### Complete Go gate
 
 ```bash
 make ci
 ```
 
-The current pre-driver integration tree passes this gate with Go 1.25, including module tidiness, repository formatting, `go vet`, normal tests, race tests, binary build, and CLI smoke coverage.
+This runs:
 
-MySQL integration gate:
+```text
+go mod tidy + module diff check
+gofmt check
+go vet ./...
+go test ./...
+go test -race ./...
+CGo-free production build
+Linux/Windows/macOS cross-builds
+persistent inspect/diff CLI smoke tests
+privacy and invalid-input smoke assertions
+```
+
+### SQLite candidate contracts and comparison
+
+```bash
+make test-sqlite-drivers
+make cross-build-sqlite-drivers
+RUNS=7 SNAPSHOTS=250 make compare-sqlite-drivers
+```
+
+The ncruces comparison dependency is confined to `test/acceptance/sqlite-drivers`, which is a separate Go module.
+
+### MySQL acceptance
 
 ```bash
 make test-mysql
 ```
 
-The MySQL matrix uses pinned MySQL 8.0.46 and 8.4.11 containers and is intended to verify read-only access, capability truthfulness, adapter contracts, schema fingerprint stability, sanitized plan output, versioned reports, and credential/privacy behavior.
+This starts pinned MySQL 8.0.46 and 8.4.11 containers, runs integration and adapter-contract tests, verifies sanitized EXPLAIN output and exercises persistent MySQL history plus `diff` through the production CGo-free binary.
 
-### Remaining acceptance gates
-
-The following gates remain intentionally open:
-
-```text
-Pin modernc.org/sqlite and register its database/sql driver at the composition root
-Bind the default CLI to the owned SQLite history-store factory
-SQLite live Go on-disk create / save / close / reopen / diff verification
-Final driver-inclusive Go 1.25 make ci and binary smoke gate
-MySQL 8.0.46 Docker integration
-MySQL 8.4.11 Docker integration
-```
-
-See `docs/superpowers/specs/2026-08-21-dbprobe-v0.1-architecture-design.md`, `docs/adr/ADR-013-sqlite-driver-selection.md`, and the implementation plans under `docs/superpowers/plans/` for the architecture contract, locked decisions and execution details.
+See `docs/superpowers/specs/2026-08-21-dbprobe-v0.1-architecture-design.md`, `docs/adr/ADR-013-sqlite-driver-selection.md`, `docs/benchmarks/2026-09-02-sqlite-driver-selection.md`, and the implementation plans under `docs/superpowers/plans/` for the locked architecture, evidence and execution history.

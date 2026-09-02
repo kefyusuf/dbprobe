@@ -1,117 +1,166 @@
 # ADR-013: SQLite Driver Selection
 
-- **Status:** Provisional
-- **Date:** 2026-08-21
-- **Decision scope:** Local temporal baseline persistence only
+- **Status:** Accepted
+- **Proposed:** 2026-08-21
+- **Accepted:** 2026-09-02
+- **Decision scope:** Local temporal baseline persistence
 
 ## Context
 
-dbprobe needs an embedded SQLite database for local snapshot history, temporal diffs and trend indexes. The product targets a simple cross-platform CLI distribution, so requiring a C toolchain at build time or shipping a platform-specific native SQLite library is undesirable.
+dbprobe needs an embedded SQLite database for local snapshot history, temporal diffs and normalized trend indexes. The default CLI distribution must remain cross-platform and CGo-free; requiring a C compiler or shipping a separately managed native SQLite library would complicate builds, cross-compilation and installation.
 
-The persistence implementation in `internal/platform/sqlite` is deliberately driver-independent. It consumes `database/sql` and exposes a `ConnectorFactory` boundary:
+The persistence implementation in `internal/platform/sqlite` remains driver-independent. It consumes `database/sql` and exposes a connector boundary:
 
 ```go
 type ConnectorFactory func(string) (driver.Connector, error)
 ```
 
-`sqlite.Open(...)` owns the resulting `*sql.DB`, configures a single-connection pool, applies/migrates the database through the generic store, and manages lifecycle. The concrete driver is therefore a composition-root decision rather than a persistence-domain decision.
+`sqlite.Open(...)` owns the resulting `*sql.DB`, applies the one-connection pool policy, prepares every acquired connection, migrates the database and owns shutdown. Concrete-driver selection is therefore isolated from temporal domain and application code.
 
 ## Decision drivers
 
-A production driver must satisfy all of the following:
+The production driver must satisfy all of the following:
 
-1. CGo-free builds for the default dbprobe distribution.
+1. CGo-free builds for the default distribution.
 2. `database/sql` compatibility.
 3. A `driver.Connector` path suitable for `sql.OpenDB`.
 4. Compatibility with the repository's Go 1.25 baseline.
-5. Linux, Windows and macOS support suitable for a single Go release workflow.
-6. Active maintenance and a credible production user base.
-7. Correct SQLite transaction, foreign-key, PRAGMA and on-disk reopen behavior under dbprobe's integration tests.
-8. No concrete driver import inside `internal/core`, `internal/app`, `sdk`, or `internal/platform/sqlite`.
+5. Linux, Windows and macOS support for the release workflow.
+6. Active maintenance and a credible production adoption signal.
+7. Correct transaction, foreign-key, PRAGMA, migration and on-disk reopen behavior under dbprobe tests.
+8. No concrete driver import in `internal/core`, `internal/app`, `sdk`, surfaces or the driver-independent `internal/platform/sqlite` package.
+9. Acceptable binary footprint and local-history latency for a CLI workload.
 
 ## Considered options
 
 ### `modernc.org/sqlite`
 
-Verified candidate: `v1.56.0` (published 2026-08-03).
+Accepted version: `v1.57.0`.
 
 Advantages:
 
-- CGo-free `database/sql` driver.
-- Stable v1 module with broad adoption.
-- `NewConnector(dsn)` was added in v1.56.0 specifically for `sql.OpenDB` and connection-interposition use cases.
-- Go module declares `go 1.25.0`, matching dbprobe's minimum target.
-- Supports the platforms relevant to the initial CLI distribution.
+- CGo-free `database/sql` implementation.
+- Stable v1 module with the stronger maturity and adoption signal of the CGo-free candidates considered.
+- `NewConnector(dsn)` maps directly to dbprobe's `ConnectorFactory` and `sql.OpenDB` boundary.
+- Module baseline is Go 1.25.
+- Passed dbprobe's Linux, Windows and macOS CGo-free build matrix.
+- Produced the smaller comparison binary.
 
-Risks / costs:
+Risks and costs:
 
-- Larger transitive dependency surface than the alternatives.
-- The project explicitly documents `modernc.org/libc` as a fragile ABI dependency that must match the version declared by the SQLite module.
-- For v1.56.0 the module declares `modernc.org/libc v1.74.4`; dbprobe must not independently upgrade that dependency.
+- Larger transitive module graph than ncruces.
+- The translated-runtime stack includes `modernc.org/libc`; ABI-compatible module versions must be retained.
+- `v1.57.0` resolves `modernc.org/libc v1.74.4`; dbprobe must not independently force an incompatible libc version.
+- It was slower than ncruces in the bounded comparison workload, although the absolute per-snapshot difference was below one millisecond.
 
 ### `github.com/ncruces/go-sqlite3`
 
-Verified candidate: `v0.35.3` (published 2026-08-03).
+Validated fallback version: `v0.35.3`.
 
 Advantages:
 
-- CGo-free SQLite implementation using wasm2go.
-- `database/sql` driver.
-- `SQLite.OpenConnector(name)` supports the connector boundary already implemented by dbprobe.
-- Smaller direct dependency surface; project documentation describes Go and `x/sys` as its direct dependencies.
+- CGo-free `database/sql` implementation using the project's wasm-based SQLite runtime.
+- `SQLite.OpenConnector(name)` satisfies the same dbprobe connector contract.
+- Passed the same persistence contract and CGo-free cross-build matrix.
+- Faster in the representative write/reopen microbenchmark.
 
-Risks / costs:
+Risks and costs:
 
 - Pre-v1 module.
-- Significantly smaller adoption footprint than modernc.org/sqlite.
-- The wasm2go architecture should be benchmarked for binary size, startup cost and representative dbprobe baseline workloads before preferring it over the more established modernc driver.
+- Smaller maturity and adoption signal than modernc for the default production dependency.
+- Produced a materially larger comparison binary despite its smaller conceptual direct-dependency surface.
 
 ### `github.com/mattn/go-sqlite3`
 
-Verified current v1 line candidate: `v1.14.49`.
-
-Advantages:
-
-- Very mature and widely deployed.
-- `database/sql` compatible.
-
-Rejected for the default distribution because:
-
-- It requires CGo.
-- It requires GCC/toolchain availability for builds.
-- Cross-compilation and static-style release packaging become materially more complex, which conflicts with dbprobe's simple CLI distribution goal.
-
-It may remain useful as a non-default compatibility/reference driver in external testing, but it is not the primary dbprobe choice.
+Rejected for the default distribution because it requires CGo and a C toolchain. It remains a mature external reference implementation, but its build and cross-compilation requirements conflict with the dbprobe CLI distribution contract.
 
 ## Decision
 
-Use **`modernc.org/sqlite` as the provisional primary driver candidate** and keep **`github.com/ncruces/go-sqlite3` as the benchmark/fallback candidate**.
+Use **`modernc.org/sqlite v1.57.0` as the default SQLite driver**.
 
-Do **not** add either dependency to `go.mod` until the environment can perform a real Go 1.25 module resolution and verification run.
+Keep **`github.com/ncruces/go-sqlite3 v0.35.3` as a validated acceptance-only fallback**. It is present only in the isolated module under `test/acceptance/sqlite-drivers`; it is not part of the production module graph.
 
-If modernc v1.56.0 is selected by the live gate, its dependency graph must retain the module-declared `modernc.org/libc v1.74.4` compatibility; dbprobe must not hand-author a mismatched libc pin or `go.sum`.
+The concrete modernc import lives in the dedicated leaf package:
 
-The production driver import will live at the composition root (for example `cmd/dbprobe` or an equally narrow wiring package). `internal/platform/sqlite` will continue to accept only a `driver.Connector` factory and will not import either concrete driver.
+```text
+internal/platform/sqlite/modernc
+```
 
-## Live selection gate
+The generic `internal/platform/sqlite` package continues to depend only on `database/sql` and `database/sql/driver`. Architecture tests reject `modernc.org/sqlite` imports outside the dedicated binding leaf.
 
-Before changing this ADR to **Accepted**, run both CGo-free candidates through the same test matrix where practical:
+The default CLI composition supplies the modernc-backed owned-store factory. Consequently:
 
-1. Go 1.25.13 build/test on Linux amd64.
-2. Windows amd64 and macOS cross-build smoke checks.
-3. Create database → migrate → save snapshots → close process handle → reopen → `Latest` / `Previous` / `List`.
-4. Duplicate snapshot idempotency and conflicting-payload rejection.
-5. Foreign-key cascade and transaction rollback behavior.
-6. Connection-local PRAGMA behavior.
-7. Representative snapshot write/read latency.
-8. Final binary-size comparison.
-9. `go mod tidy` stability and dependency audit.
+- `dbprobe inspect` persists snapshots to the platform data path by default;
+- `dbprobe diff` is part of the default command graph;
+- a history path-resolution or open failure does not block inspection and is rendered only as a generic history warning;
+- `dbprobe diff` still fails when history is unavailable because it cannot produce a meaningful comparison without stored snapshots.
 
-Choose ncruces instead if it materially improves release simplicity/binary footprint without failing correctness, compatibility or performance gates.
+## Acceptance evidence
+
+### Correctness
+
+The live modernc path passed:
+
+- create and migrate;
+- save, close and reopen;
+- `Latest`, `Previous` and `List`;
+- duplicate snapshot idempotency;
+- conflicting same-ID payload rejection;
+- `PRAGMA foreign_keys = 1`;
+- `PRAGMA busy_timeout = 5000`;
+- `PRAGMA user_version = 1`;
+- rollback after a forced trend-row insert failure;
+- foreign-key cascade cleanup;
+- private file permissions where supported;
+- default CLI `inspect -> inspect -> diff` persistence;
+- normal and race test suites.
+
+### Toolchain and platforms
+
+The production CLI passed CGo-free builds for:
+
+- Linux amd64;
+- Windows amd64;
+- macOS amd64;
+- macOS arm64.
+
+Both modernc and ncruces comparison binaries passed the same CGo-free target matrix.
+
+### Candidate comparison
+
+Evidence is recorded in `docs/benchmarks/2026-09-02-sqlite-driver-selection.md` and was produced by workflow run `33646041100` on Go 1.25.14.
+
+Median results over seven alternating runs with 250 snapshots, 32 observations and 16 deltas per snapshot:
+
+| Metric | modernc v1.57.0 | ncruces v0.35.3 |
+|---|---:|---:|
+| Stripped comparison binary | 6.38 MiB | 8.70 MiB |
+| Full process elapsed | 1,060.421 ms | 940.012 ms |
+| Open + migrate | 2.519 ms | 2.522 ms |
+| Write per snapshot | 4.007 ms | 3.541 ms |
+| Reopen + read checks | 46.636 ms | 38.676 ms |
+
+ncruces was approximately 13% faster overall. The absolute median write difference was approximately 0.47 ms per snapshot, while modernc produced a 2.32 MiB smaller comparison binary. Because target-database collection and counter sampling dominate a normal dbprobe inspection, the local persistence difference was judged non-material for the default CLI. Maturity, v1 stability and binary footprint therefore outweighed the microbenchmark advantage.
+
+### MySQL integration
+
+The modernc-backed default CLI also passed the Docker acceptance matrix against MySQL 8.0.46 and 8.4.11, including two persisted MySQL inspections followed by a versioned `dbprobe diff` report. The same gate retained adapter contract, schema fingerprint, plan sanitization and credential/privacy assertions.
 
 ## Consequences
 
-- dbprobe's temporal store is no longer structurally blocked on a specific SQLite package.
-- Driver replacement remains a composition-only change.
-- The current integration branch can continue validating persistence behavior with the standard library fake driver and SQLite SQL engine while dependency access is unavailable.
-- Persistent CLI history is still not considered production-accepted until one concrete driver passes the live reopen matrix.
+- Persistent temporal history and `diff` are enabled in the default CLI.
+- dbprobe release builds remain CGo-free.
+- Concrete-driver replacement remains localized to one binding leaf and the composition root.
+- The production module accepts modernc's larger transitive dependency graph and must respect its declared libc version.
+- ncruces remains continuously reproducible as an acceptance-only fallback without increasing the production dependency graph.
+- Driver upgrades must rerun the live reopen, full Go/race, CGo-free cross-build, candidate contract and representative comparison gates.
+
+## Reconsideration triggers
+
+Reopen this decision if any of the following occurs:
+
+1. modernc/libc compatibility causes recurring build or runtime failures;
+2. the modernc binary footprint becomes materially larger than the fallback;
+3. local persistence becomes a significant portion of end-to-end inspection latency in production profiles;
+4. a driver upgrade changes transaction, PRAGMA or close/reopen behavior;
+5. either candidate materially changes its support or stability guarantees.
