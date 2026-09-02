@@ -30,6 +30,9 @@ func newDiffCommand(deps commandDependencies) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if err := validateTarget(registry, args[0]); err != nil {
+				return err
+			}
 			path, err := deps.resolveHistoryPath()
 			if err != nil {
 				return err
