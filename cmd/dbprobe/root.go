@@ -3,7 +3,7 @@ package main
 import "github.com/spf13/cobra"
 
 func newRootCommand() *cobra.Command {
-	return newRootCommandWithDependencies(commandDependencies{})
+	return newRootCommandWithDependencies(defaultCommandDependencies())
 }
 
 func newRootCommandWithDependencies(deps commandDependencies) *cobra.Command {

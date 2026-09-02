@@ -50,22 +50,26 @@ func queryRegressionMetrics(target adapter.TargetMetadata) *temporal.MetricPair 
 	}
 }
 
-func withHistoryStore(ctx context.Context, path string, factory historyStoreFactory, operation func(temporal.Store) error) (err error) {
+func openHistoryStore(ctx context.Context, path string, factory historyStoreFactory) (ownedHistoryStore, error) {
 	if strings.TrimSpace(path) == "" {
-		return fmt.Errorf("history database path is required")
+		return nil, fmt.Errorf("history database path is required")
 	}
 	if factory == nil {
-		return fmt.Errorf("history store factory is required")
-	}
-	if operation == nil {
-		return fmt.Errorf("history operation is required")
+		return nil, fmt.Errorf("history store factory is required")
 	}
 	store, err := factory(ctx, path)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if store == nil {
-		return fmt.Errorf("history store factory returned nil")
+		return nil, fmt.Errorf("history store factory returned nil")
+	}
+	return store, nil
+}
+
+func withOpenedHistoryStore(store ownedHistoryStore, operation func(temporal.Store) error) (err error) {
+	if store == nil {
+		return fmt.Errorf("history store is required")
 	}
 	defer func() {
 		closeErr := store.Close()
@@ -73,5 +77,19 @@ func withHistoryStore(ctx context.Context, path string, factory historyStoreFact
 			err = fmt.Errorf("close history store: %w", closeErr)
 		}
 	}()
+	if operation == nil {
+		return fmt.Errorf("history operation is required")
+	}
 	return operation(store)
+}
+
+func withHistoryStore(ctx context.Context, path string, factory historyStoreFactory, operation func(temporal.Store) error) error {
+	if operation == nil {
+		return fmt.Errorf("history operation is required")
+	}
+	store, err := openHistoryStore(ctx, path, factory)
+	if err != nil {
+		return err
+	}
+	return withOpenedHistoryStore(store, operation)
 }

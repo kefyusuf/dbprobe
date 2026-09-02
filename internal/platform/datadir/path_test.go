@@ -2,6 +2,7 @@ package datadir
 
 import (
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -51,6 +52,24 @@ func TestBaselineDBPathUsesDbprobeNamespace(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := filepath.Join("/data/u", "dbprobe", "dbprobe.db")
+	if got != want {
+		t.Fatalf("got=%q want=%q", got, want)
+	}
+}
+
+func TestBaselineDBPathUsesConfiguredLinuxDataDirWithoutHome(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("public environment behavior is Linux-specific")
+	}
+	root := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", root)
+	t.Setenv("HOME", "")
+
+	got, err := BaselineDBPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(root, "dbprobe", "dbprobe.db")
 	if got != want {
 		t.Fatalf("got=%q want=%q", got, want)
 	}

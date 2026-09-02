@@ -13,7 +13,6 @@ import (
 
 func Rules() []finding.Rule {
 	return []finding.Rule{
-		connectionSaturationRule{},
 		longTransactionRule{},
 		queryFullScanRule{},
 		queryAmplificationRule{},
@@ -24,31 +23,6 @@ func Rules() []finding.Rule {
 		replicationErrorRule{},
 		lockContentionRule{},
 	}
-}
-
-type connectionSaturationRule struct{}
-
-func (connectionSaturationRule) ID() finding.ID { return "core.connection_saturation" }
-func (connectionSaturationRule) Requires() []capability.Capability {
-	return []capability.Capability{"mysql.performance_schema"}
-}
-func (r connectionSaturationRule) Evaluate(ctx finding.AnalysisContext) []finding.Finding {
-	usedObs, used, okUsed := firstNumber(ctx.Current, "core.connections.used", nil)
-	_, limit, okLimit := firstNumber(ctx.Current, "core.connections.limit", nil)
-	if !okUsed || !okLimit || limit <= 0 {
-		return nil
-	}
-	ratio := used / limit
-	severity := finding.Severity("")
-	switch {
-	case ratio >= 0.95:
-		severity = "critical"
-	case ratio >= 0.85:
-		severity = "warn"
-	default:
-		return nil
-	}
-	return []finding.Finding{{ID: r.ID(), Title: "Connection capacity is saturated", Severity: severity, Object: usedObs.Object, Evidence: []signal.Observation{usedObs}, Summary: fmt.Sprintf("%.0f of %.0f configured connections are in use (%.1f%%).", used, limit, ratio*100), Guidance: "Investigate connection leaks, pool sizing, long-running work, and max_connections together before changing limits.", Confidence: 0.95}}
 }
 
 type longTransactionRule struct{}

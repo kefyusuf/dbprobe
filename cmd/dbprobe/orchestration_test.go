@@ -85,6 +85,54 @@ func TestHistoryBackedCommandsValidateBeforeOpeningStore(t *testing.T) {
 	}
 }
 
+func TestInspectRejectsInvalidTargetsBeforeOpeningHistory(t *testing.T) {
+	assertInvalidTargetsDoNotOpenHistory(t, func(target string) []string {
+		return []string{"inspect", target, "--format=json", "--sample-window=1ms"}
+	})
+}
+
+func TestDiffRejectsInvalidTargetsBeforeOpeningHistory(t *testing.T) {
+	assertInvalidTargetsDoNotOpenHistory(t, func(target string) []string {
+		return []string{"diff", target, "--format=json"}
+	})
+}
+
+func assertInvalidTargetsDoNotOpenHistory(t *testing.T, argsForTarget func(string) []string) {
+	t.Helper()
+	for _, tc := range []struct {
+		target string
+		want   string
+	}{
+		{target: "not-a-url", want: "invalid target URL"},
+		{target: "redis://user:secret@local", want: "no adapter matches"},
+	} {
+		t.Run(tc.want, func(t *testing.T) {
+			opens := 0
+			deps := commandDependencies{
+				historyPath: func() (string, error) { return filepath.Join(t.TempDir(), "dbprobe.db"), nil },
+				openHistory: func(context.Context, string) (ownedHistoryStore, error) {
+					opens++
+					return &closableMemoryHistory{Memory: baseline.NewMemory()}, nil
+				},
+			}
+			cmd := newRootCommandWithDependencies(deps)
+			cmd.SetOut(&bytes.Buffer{})
+			cmd.SetErr(&bytes.Buffer{})
+			cmd.SetArgs(argsForTarget(tc.target))
+			err := cmd.Execute()
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("target=%q err=%v; want %q", tc.target, err, tc.want)
+			}
+			if strings.Contains(err.Error(), "user:secret") {
+				t.Fatalf("credentials leaked in error: %v", err)
+			}
+			if opens != 0 {
+				t.Fatalf("history opened %d times for invalid target %q", opens, tc.target)
+			}
+		})
+	}
+}
+
 func executeRoot(t *testing.T, deps commandDependencies, args ...string) string {
 	t.Helper()
 	cmd := newRootCommandWithDependencies(deps)
