@@ -101,12 +101,14 @@ func TestConnectorHonorsPragmasTransactionsAndForeignKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var foreignKeys int
-	if err := db.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&foreignKeys); err != nil {
-		t.Fatal(err)
+	if got := pragmaInt(t, db, "foreign_keys"); got != 1 {
+		t.Fatalf("foreign_keys=%d want=1", got)
 	}
-	if foreignKeys != 1 {
-		t.Fatalf("foreign_keys=%d want=1", foreignKeys)
+	if got := pragmaInt(t, db, "busy_timeout"); got != 5000 {
+		t.Fatalf("busy_timeout=%d want=5000", got)
+	}
+	if got := pragmaInt(t, db, "user_version"); got != 1 {
+		t.Fatalf("user_version=%d want=1", got)
 	}
 
 	if _, err := db.ExecContext(ctx, `CREATE TRIGGER fail_trend
@@ -166,6 +168,15 @@ func liveSnapshot(t *testing.T, at time.Time, value float64) temporal.Snapshot {
 		t.Fatal(err)
 	}
 	return snapshot
+}
+
+func pragmaInt(t *testing.T, db *sql.DB, name string) int {
+	t.Helper()
+	var value int
+	if err := db.QueryRow("PRAGMA " + name).Scan(&value); err != nil {
+		t.Fatal(err)
+	}
+	return value
 }
 
 func rowCount(t *testing.T, db *sql.DB, query string, args ...any) int {
