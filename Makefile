@@ -100,4 +100,4 @@ test-mysql:
 test-mysql-down:
 	$(MYSQL_COMPOSE) down -v
 
-ci: mod-check fmt-check vet test race build cross-build smoke
+ci: mod-check fmt-check vet test race build cross-build test-sqlite-drivers smoke
