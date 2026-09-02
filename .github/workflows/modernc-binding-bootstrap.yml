@@ -17,6 +17,26 @@ jobs:
         with:
           go-version: '1.25.x'
           cache: true
+      - name: Remove obsolete adapter-local core rule
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          rules = Path("adapters/mysql/findings/rules.go")
+          text = rules.read_text()
+          text = text.replace("\t\tconnectionSaturationRule{},\n", "", 1)
+          start_marker = "type connectionSaturationRule struct{}\n"
+          end_marker = "type longTransactionRule struct{}\n"
+          if start_marker in text:
+              start = text.index(start_marker)
+              end = text.index(end_marker, start)
+              text = text[:start] + text[end:]
+          rules.write_text(text)
+
+          obsolete_test = Path("adapters/mysql/findings/connections_test.go")
+          if obsolete_test.exists():
+              obsolete_test.unlink()
+          PY
       - name: Resolve modules and format source
         run: |
           go mod tidy
@@ -25,12 +45,12 @@ jobs:
           fi
           gofmt -w $(find . -name '*.go' -not -path './vendor/*')
           if git diff --quiet; then
-            echo "Dependency and formatting state already clean"
+            echo "Dependency, cleanup, and formatting state already clean"
           else
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add -A
-            git commit -m "build: resolve SQLite comparison dependencies"
+            git commit -m "refactor: remove duplicate MySQL core rule"
             git push origin HEAD:feat/modernc-sqlite-binding
           fi
       - name: Verify candidate persistence contracts
