@@ -67,11 +67,41 @@ func TestDependencyBoundaries(t *testing.T) {
 						t.Errorf("%s imports database/sql outside internal/platform/sqlite", path)
 					}
 				}
+				if !sqliteDriverImportAllowed(path, importPath) {
+					t.Errorf("%s imports modernc.org/sqlite outside internal/platform/sqlite/modernc", path)
+				}
 			}
 			return nil
 		})
 		if err != nil {
 			t.Fatal(err)
+		}
+	}
+}
+
+func sqliteDriverImportAllowed(path, importPath string) bool {
+	if importPath != "modernc.org/sqlite" {
+		return true
+	}
+	clean := filepath.ToSlash(filepath.Clean(path))
+	return strings.Contains(clean, "internal/platform/sqlite/modernc/")
+}
+
+func TestSQLiteDriverImportBoundary(t *testing.T) {
+	cases := []struct {
+		path       string
+		importPath string
+		allowed    bool
+	}{
+		{path: "internal/platform/sqlite/modernc/connector.go", importPath: "modernc.org/sqlite", allowed: true},
+		{path: "internal/platform/sqlite/open.go", importPath: "modernc.org/sqlite", allowed: false},
+		{path: "internal/app/diff/service.go", importPath: "modernc.org/sqlite", allowed: false},
+		{path: "internal/core/temporal/store.go", importPath: "modernc.org/sqlite", allowed: false},
+		{path: "internal/platform/sqlite/open.go", importPath: "database/sql", allowed: true},
+	}
+	for _, tc := range cases {
+		if got := sqliteDriverImportAllowed(tc.path, tc.importPath); got != tc.allowed {
+			t.Fatalf("path=%s import=%s got=%v want=%v", tc.path, tc.importPath, got, tc.allowed)
 		}
 	}
 }
