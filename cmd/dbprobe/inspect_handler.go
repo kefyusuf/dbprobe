@@ -19,7 +19,7 @@ type inspectRunner interface {
 	Run(context.Context, string, time.Duration) (inspect.Report, error)
 }
 
-func runInspect(ctx context.Context, out io.Writer, target, format string, sampleWindow time.Duration, registry *adapterregistry.Registry, store temporal.Store) error {
+func runInspect(ctx context.Context, out io.Writer, target, format string, sampleWindow time.Duration, registry *adapterregistry.Registry, store temporal.Store, additionalWarnings ...collection.Warning) error {
 	if registry == nil {
 		return fmt.Errorf("adapter registry is required")
 	}
@@ -28,10 +28,10 @@ func runInspect(ctx context.Context, out io.Writer, target, format string, sampl
 	if store != nil {
 		service = service.WithHistory(store)
 	}
-	return runInspectWithRunner(ctx, out, target, format, sampleWindow, service)
+	return runInspectWithRunner(ctx, out, target, format, sampleWindow, service, additionalWarnings...)
 }
 
-func runInspectWithRunner(ctx context.Context, out io.Writer, target, format string, sampleWindow time.Duration, runner inspectRunner) error {
+func runInspectWithRunner(ctx context.Context, out io.Writer, target, format string, sampleWindow time.Duration, runner inspectRunner, additionalWarnings ...collection.Warning) error {
 	if strings.TrimSpace(target) == "" {
 		return fmt.Errorf("inspect target is required")
 	}
@@ -50,6 +50,9 @@ func runInspectWithRunner(ctx context.Context, out io.Writer, target, format str
 	report, err := runner.Run(ctx, target, sampleWindow)
 	if err != nil {
 		return err
+	}
+	if len(additionalWarnings) > 0 {
+		report.Warnings = append(report.Warnings, additionalWarnings...)
 	}
 	if format == "json" {
 		return jsonsurface.Render(out, report)
