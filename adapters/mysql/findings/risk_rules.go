@@ -2,6 +2,7 @@ package findings
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/kefyusuf/dbprobe/sdk/capability"
 	"github.com/kefyusuf/dbprobe/sdk/finding"
@@ -90,7 +91,7 @@ func (noGoodIndexRule) Requires() []capability.Capability {
 }
 func (r noGoodIndexRule) Evaluate(ctx finding.AnalysisContext) []finding.Finding {
 	out := []finding.Finding{}
-	for _, group := range groupDeltas(ctx.Deltas) {
+	for _, group := range sortedDeltaGroups(ctx.Deltas) {
 		calls, okCalls := group.values["core.query.calls"]
 		noGood, okNoGood := group.values["mysql.query.no_good_index_used"]
 		if !okCalls || !okNoGood || calls < 10 || noGood < 5 {
@@ -127,7 +128,7 @@ func (diskTempTableRule) Requires() []capability.Capability {
 }
 func (r diskTempTableRule) Evaluate(ctx finding.AnalysisContext) []finding.Finding {
 	out := []finding.Finding{}
-	for _, group := range groupDeltas(ctx.Deltas) {
+	for _, group := range sortedDeltaGroups(ctx.Deltas) {
 		calls, okCalls := group.values["core.query.calls"]
 		diskTables, okDisk := group.values["mysql.query.temp_disk_tables"]
 		if !okCalls || !okDisk || calls < 10 || diskTables < 3 {
@@ -164,7 +165,7 @@ func (redoPressureRule) Requires() []capability.Capability {
 }
 func (r redoPressureRule) Evaluate(ctx finding.AnalysisContext) []finding.Finding {
 	out := []finding.Finding{}
-	for _, group := range groupDeltas(ctx.Deltas) {
+	for _, group := range sortedDeltaGroups(ctx.Deltas) {
 		waits, ok := group.values["mysql.innodb.log_waits"]
 		if !ok || waits < 1 {
 			continue
@@ -194,7 +195,7 @@ func (deadlockRateRule) Requires() []capability.Capability {
 }
 func (r deadlockRateRule) Evaluate(ctx finding.AnalysisContext) []finding.Finding {
 	out := []finding.Finding{}
-	for _, group := range groupDeltas(ctx.Deltas) {
+	for _, group := range sortedDeltaGroups(ctx.Deltas) {
 		deadlocks, ok := group.values["mysql.innodb.deadlocks"]
 		if !ok || deadlocks < 3 {
 			continue
@@ -224,7 +225,7 @@ func (fullScanHeavyTableRule) Requires() []capability.Capability {
 }
 func (r fullScanHeavyTableRule) Evaluate(ctx finding.AnalysisContext) []finding.Finding {
 	out := []finding.Finding{}
-	for _, group := range groupDeltas(ctx.Deltas) {
+	for _, group := range sortedDeltaGroups(ctx.Deltas) {
 		fullScanReads, ok := group.values["mysql.table.full_scan_rows"]
 		if !ok || fullScanReads < 100000 {
 			continue
@@ -249,4 +250,19 @@ func (r fullScanHeavyTableRule) Evaluate(ctx finding.AnalysisContext) []finding.
 		})
 	}
 	return out
+}
+
+func sortedDeltaGroups(deltas []signal.Delta) []*deltaGroup {
+	grouped := groupDeltas(deltas)
+	keys := make([]string, 0, len(grouped))
+	for key := range grouped {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	ordered := make([]*deltaGroup, 0, len(keys))
+	for _, key := range keys {
+		ordered = append(ordered, grouped[key])
+	}
+	return ordered
 }

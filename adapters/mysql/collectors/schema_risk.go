@@ -80,17 +80,22 @@ func (c *primaryKeyCollector) Descriptor() collector.Descriptor {
 }
 
 func (c *primaryKeyCollector) Collect(ctx context.Context, req collector.Request) ([]signal.Observation, error) {
-	rows, err := c.query.QueryContext(ctx, primaryKeySQL, c.database, c.limit)
+	rows, err := c.query.QueryContext(ctx, primaryKeySQL, c.database, c.limit+1)
 	if err != nil {
 		return nil, fmt.Errorf("collect mysql.schema.primary_keys: %w", err)
 	}
 	defer rows.Close()
 
 	observations := make([]signal.Observation, 0, c.limit)
+	truncated := false
 	for rows.Next() {
 		var schemaName, tableName, presentRaw string
 		if err := rows.Scan(&schemaName, &tableName, &presentRaw); err != nil {
 			return nil, fmt.Errorf("scan mysql.schema.primary_keys: %w", err)
+		}
+		if len(observations) >= c.limit {
+			truncated = true
+			break
 		}
 		present := presentRaw == "1"
 		ref := object.Ref{Kind: "mysql.table", ID: schemaName + "." + tableName}
@@ -98,6 +103,9 @@ func (c *primaryKeyCollector) Collect(ctx context.Context, req collector.Request
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate mysql.schema.primary_keys: %w", err)
+	}
+	if truncated {
+		return observations, fmt.Errorf("primary-key scan truncated after %d tables", c.limit)
 	}
 	return observations, nil
 }
@@ -116,18 +124,25 @@ func (c *autoIncrementCollector) Descriptor() collector.Descriptor {
 }
 
 func (c *autoIncrementCollector) Collect(ctx context.Context, req collector.Request) ([]signal.Observation, error) {
-	rows, err := c.query.QueryContext(ctx, autoIncrementSQL, c.database, c.limit)
+	rows, err := c.query.QueryContext(ctx, autoIncrementSQL, c.database, c.limit+1)
 	if err != nil {
 		return nil, fmt.Errorf("collect mysql.schema.auto_increment: %w", err)
 	}
 	defer rows.Close()
 
 	observations := make([]signal.Observation, 0, c.limit*3)
+	rowsSeen := 0
+	truncated := false
 	for rows.Next() {
 		var schemaName, tableName, columnName, dataType, columnType, nextRaw string
 		if err := rows.Scan(&schemaName, &tableName, &columnName, &dataType, &columnType, &nextRaw); err != nil {
 			return nil, fmt.Errorf("scan mysql.schema.auto_increment: %w", err)
 		}
+		if rowsSeen >= c.limit {
+			truncated = true
+			break
+		}
+		rowsSeen++
 		maxValue, ok := autoIncrementMax(dataType, columnType)
 		if !ok || maxValue <= 0 {
 			continue
@@ -154,6 +169,9 @@ func (c *autoIncrementCollector) Collect(ctx context.Context, req collector.Requ
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate mysql.schema.auto_increment: %w", err)
+	}
+	if truncated {
+		return observations, fmt.Errorf("auto-increment scan truncated after %d columns", c.limit)
 	}
 	return observations, nil
 }
