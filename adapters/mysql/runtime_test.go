@@ -3,7 +3,7 @@ package mysql
 import "testing"
 
 func TestBuildTargetUsesServerUUIDForStableFingerprint(t *testing.T) {
-	cfg, err := ParseConfig("mysql://dbprobe:secret@db.example:3306/shop")
+	cfg, err := ParseConfig("mysql://dbprobe:secret@db.example:3306/shop?tls=true")
 	if err != nil {
 		t.Fatal(err)
 	}
