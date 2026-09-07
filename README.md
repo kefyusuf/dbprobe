@@ -115,16 +115,30 @@ Resource bounds are fail-closed: 1 MiB per metadata field, 4 MiB per canonical r
 
 ## CLI
 
+### MySQL credentials and transport
+
+Do not place a MySQL password in the positional target URL. The CLI rejects password-bearing MySQL URL userinfo because process arguments can be visible to other local processes. Supply the username in the URL and pipe the password through standard input with `--password-stdin`.
+
+MySQL targets must also declare an explicit transport mode. Use `tls=true` for remote hosts. `tls=false` is accepted only for loopback targets such as `localhost`, `127.0.0.1`, and `::1`; insecure fallback modes are rejected.
+
+For an interactive shell, one portable pattern is:
+
+```bash
+read -rsp 'MySQL password: ' DBPROBE_PASSWORD; printf '\n'
+printf '%s\n' "$DBPROBE_PASSWORD" | dbprobe inspect \
+  'mysql://dbprobe@127.0.0.1:3306/shop?tls=false' \
+  --password-stdin \
+  --format=json \
+  --sample-window=1s
+unset DBPROBE_PASSWORD
+```
+
+For remote MySQL, use the same password-input mechanism with an authenticated TLS target such as `mysql://dbprobe@db.example:3306/shop?tls=true`.
+
 ### Inspect
 
 ```bash
 dbprobe inspect fake://local
-```
-
-```bash
-dbprobe inspect 'mysql://dbprobe:password@127.0.0.1:3306/shop' \
-  --format=json \
-  --sample-window=1s
 ```
 
 When local history is available, successful inspections are persisted automatically to the platform data file. When it is unavailable, `inspect` still returns its diagnostic report with a generic history warning and does not claim that the snapshot was stored.
@@ -140,11 +154,16 @@ When local history is available, successful inspections are persisted automatica
 After at least two persisted inspections of the same target:
 
 ```bash
-dbprobe diff 'mysql://dbprobe:password@127.0.0.1:3306/shop'
+printf '%s\n' "$DBPROBE_PASSWORD" | dbprobe diff \
+  'mysql://dbprobe@127.0.0.1:3306/shop?tls=false' \
+  --password-stdin
 ```
 
 ```bash
-dbprobe diff 'mysql://dbprobe:password@127.0.0.1:3306/shop' --format=json
+printf '%s\n' "$DBPROBE_PASSWORD" | dbprobe diff \
+  'mysql://dbprobe@127.0.0.1:3306/shop?tls=false' \
+  --password-stdin \
+  --format=json
 ```
 
 The JSON contract is versioned as `dbprobe.diff/v1alpha1`.
@@ -152,20 +171,24 @@ The JSON contract is versioned as `dbprobe.diff/v1alpha1`.
 ### Explain
 
 ```bash
-dbprobe explain 'mysql://dbprobe:password@127.0.0.1:3306/shop' \
+printf '%s\n' "$DBPROBE_PASSWORD" | dbprobe explain \
+  'mysql://dbprobe@127.0.0.1:3306/shop?tls=false' \
+  --password-stdin \
   --statement 'SELECT * FROM shop.orders WHERE customer_id = 1' \
   --format=json
 ```
 
 `dbprobe explain` does **not** use `EXPLAIN ANALYZE`. It accepts one conservative `SELECT`, runs `EXPLAIN FORMAT=JSON` inside a bounded read-only transaction, rolls it back and sanitizes the JSON plan before rendering. Literal conditions and unknown scalar plan fields are not emitted.
 
-MySQL URI options are restricted to diagnostic connection settings such as `tls`, `timeout`, `readTimeout` and `writeTimeout`. Options that expand driver behavior, including multi-statements and local-file access, are rejected.
+MySQL URI options are restricted to diagnostic connection settings such as `tls`, `timeout`, `readTimeout` and `writeTimeout`. `tls=true` is required for non-loopback hosts; explicit `tls=false` is limited to loopback development targets. TLS modes that disable verification or permit plaintext fallback are rejected. Options that expand driver behavior, including multi-statements and local-file access, are also rejected.
 
 ## Safety and privacy
 
 - Deterministic code owns diagnosis; AI is explanatory only.
 - Diagnostic collectors are read-only and do not perform remediation.
+- MySQL passwords are rejected in positional target URLs and can be supplied through `--password-stdin`.
 - Credentials are never emitted or persisted.
+- Remote MySQL targets require explicit authenticated TLS; plaintext is limited to explicit loopback targets.
 - Query workload evidence uses normalized digest/query-shape representations.
 - Transaction query text is not collected.
 - Replication error-message text is not collected because it can contain application values.
@@ -220,6 +243,6 @@ The ncruces comparison dependency is confined to `test/acceptance/sqlite-drivers
 make test-mysql
 ```
 
-This starts pinned MySQL 8.0.46 and 8.4.11 containers, runs integration and adapter-contract tests, verifies sanitized EXPLAIN output and exercises persistent MySQL history plus `diff` through the production CGo-free binary.
+This starts pinned MySQL 8.0.46 and 8.4.11 containers, runs integration and adapter-contract tests, verifies sanitized EXPLAIN output and exercises persistent MySQL history plus `diff` through the production CGo-free binary. The Docker acceptance DSNs use explicit loopback `tls=false`; production remote targets must use `tls=true`.
 
 See `docs/superpowers/specs/2026-08-21-dbprobe-v0.1-architecture-design.md`, `docs/adr/ADR-013-sqlite-driver-selection.md`, `docs/benchmarks/2026-09-02-sqlite-driver-selection.md`, and the implementation plans under `docs/superpowers/plans/` for the locked architecture, evidence and execution history.
