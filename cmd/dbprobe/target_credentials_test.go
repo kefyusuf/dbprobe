@@ -4,6 +4,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 func TestResolveCommandTargetRejectsPasswordInArgument(t *testing.T) {
@@ -53,7 +55,7 @@ func TestResolveCommandTargetRejectsPasswordStdinForNonMySQLTarget(t *testing.T)
 func TestDatabaseCommandsExposePasswordStdinFlag(t *testing.T) {
 	commands := []struct {
 		name string
-		cmd  interface{ Flags() *pflag.FlagSet }
+		cmd  *cobra.Command
 	}{
 		{name: "inspect", cmd: newInspectCommandWithDependencies(commandDependencies{})},
 		{name: "diff", cmd: newDiffCommand(commandDependencies{})},
