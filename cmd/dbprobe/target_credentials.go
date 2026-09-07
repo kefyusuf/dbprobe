@@ -36,7 +36,8 @@ func resolveCommandTarget(raw string, passwordStdin bool, in io.Reader) (string,
 		return "", fmt.Errorf("MySQL password input is required")
 	}
 
-	password, err := bufio.NewReader(in).ReadString('\n')
+	limited := io.LimitReader(in, maxMySQLPasswordBytes+1)
+	password, err := bufio.NewReader(limited).ReadString('\n')
 	if err != nil && err != io.EOF {
 		return "", fmt.Errorf("read MySQL password from stdin")
 	}
