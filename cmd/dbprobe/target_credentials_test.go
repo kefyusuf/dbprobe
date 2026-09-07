@@ -49,3 +49,19 @@ func TestResolveCommandTargetRejectsPasswordStdinForNonMySQLTarget(t *testing.T)
 		t.Fatalf("error=%v", err)
 	}
 }
+
+func TestDatabaseCommandsExposePasswordStdinFlag(t *testing.T) {
+	commands := []struct {
+		name string
+		cmd  interface{ Flags() *pflag.FlagSet }
+	}{
+		{name: "inspect", cmd: newInspectCommandWithDependencies(commandDependencies{})},
+		{name: "diff", cmd: newDiffCommand(commandDependencies{})},
+		{name: "explain", cmd: newExplainCommand()},
+	}
+	for _, tc := range commands {
+		if tc.cmd.Flags().Lookup("password-stdin") == nil {
+			t.Fatalf("%s command is missing --password-stdin", tc.name)
+		}
+	}
+}
