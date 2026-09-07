@@ -2,8 +2,9 @@
 
 BINARY ?= /tmp/dbprobe
 MYSQL_COMPOSE := docker compose -f test/integration/mysql/docker-compose.yml
-MYSQL80_DSN ?= mysql://dbprobe:dbprobe-pass@127.0.0.1:13306/shop
-MYSQL84_DSN ?= mysql://dbprobe:dbprobe-pass@127.0.0.1:13307/shop
+MYSQL80_DSN ?= mysql://dbprobe:dbprobe-pass@127.0.0.1:13306/shop?tls=false
+MYSQL84_DSN ?= mysql://dbprobe:dbprobe-pass@127.0.0.1:13307/shop?tls=false
+MYSQL84_TARGET ?= mysql://dbprobe@127.0.0.1:13307/shop?tls=false
 SQLITE_COMPARE_DIR := test/acceptance/sqlite-drivers
 
 fmt:
@@ -69,6 +70,8 @@ smoke: build
 	$(BINARY) inspect fake://local --sample-window=1ms | grep -q 'dbprobe · fake · local'; \
 	if $(BINARY) inspect 'redis://user:secret@local' --sample-window=1ms >/tmp/dbprobe-bad.out 2>/tmp/dbprobe-bad.err; then echo 'unsupported scheme unexpectedly succeeded'; exit 1; fi; \
 	if grep -q 'user:secret' /tmp/dbprobe-bad.err; then echo 'credential leaked in error output'; exit 1; fi; \
+	if $(BINARY) inspect 'mysql://dbprobe:argv-secret@127.0.0.1:3306/shop?tls=false' --sample-window=1ms >/tmp/dbprobe-argv.out 2>/tmp/dbprobe-argv.err; then echo 'credential-bearing MySQL target unexpectedly succeeded'; exit 1; fi; \
+	if grep -q 'argv-secret' /tmp/dbprobe-argv.err; then echo 'MySQL argv credential leaked in error output'; exit 1; fi; \
 	if $(BINARY) inspect fake://local --format=xml --sample-window=1ms >/tmp/dbprobe-bad-format.out 2>/tmp/dbprobe-bad-format.err; then echo 'unsupported format unexpectedly succeeded'; exit 1; fi
 
 test-mysql:
@@ -82,20 +85,20 @@ test-mysql:
 	DBPROBE_TEST_MYSQL_DSN='$(MYSQL84_DSN)' go test ./test/contract -run TestAdapterContract/mysql -v; \
 	CGO_ENABLED=0 go build -o $(BINARY) ./cmd/dbprobe; \
 	export XDG_DATA_HOME="$$data_root"; \
-	$(BINARY) inspect '$(MYSQL84_DSN)' --format=json --sample-window=10ms > /tmp/dbprobe-mysql-report.json; \
+	printf '%s\n' 'dbprobe-pass' | $(BINARY) inspect '$(MYSQL84_TARGET)' --password-stdin --format=json --sample-window=10ms > /tmp/dbprobe-mysql-report.json; \
 	grep -q '"schema_version": "dbprobe.inspect/v1alpha1"' /tmp/dbprobe-mysql-report.json; \
 	grep -q '"engine": "mysql"' /tmp/dbprobe-mysql-report.json; \
-	$(BINARY) inspect '$(MYSQL84_DSN)' --format=json --sample-window=10ms > /tmp/dbprobe-mysql-report-2.json; \
-	$(BINARY) diff '$(MYSQL84_DSN)' --format=json > /tmp/dbprobe-mysql-diff.json; \
+	printf '%s\n' 'dbprobe-pass' | $(BINARY) inspect '$(MYSQL84_TARGET)' --password-stdin --format=json --sample-window=10ms > /tmp/dbprobe-mysql-report-2.json; \
+	printf '%s\n' 'dbprobe-pass' | $(BINARY) diff '$(MYSQL84_TARGET)' --password-stdin --format=json > /tmp/dbprobe-mysql-diff.json; \
 	grep -q '"schema_version": "dbprobe.diff/v1alpha1"' /tmp/dbprobe-mysql-diff.json; \
 	test -s "$$data_root/dbprobe/dbprobe.db"; \
-	$(BINARY) explain '$(MYSQL84_DSN)' --statement "SELECT * FROM shop.customers WHERE email = 'alice@example.test'" --format=json > /tmp/dbprobe-mysql-explain.json; \
+	printf '%s\n' 'dbprobe-pass' | $(BINARY) explain '$(MYSQL84_TARGET)' --password-stdin --statement "SELECT * FROM shop.customers WHERE email = 'alice@example.test'" --format=json > /tmp/dbprobe-mysql-explain.json; \
 	grep -q '"schema_version": "dbprobe.explain/v1alpha1"' /tmp/dbprobe-mysql-explain.json; \
 	grep -q '"sanitized": true' /tmp/dbprobe-mysql-explain.json; \
 	grep -q 'mysql-json-sanitized' /tmp/dbprobe-mysql-explain.json; \
 	if grep -q 'alice@example.test' /tmp/dbprobe-mysql-explain.json; then echo 'MySQL explain leaked query literal'; exit 1; fi; \
 	if grep -q 'attached_condition' /tmp/dbprobe-mysql-explain.json; then echo 'MySQL explain leaked attached condition'; exit 1; fi; \
-	if $(BINARY) inspect 'mysql://dbprobe:wrong-secret@127.0.0.1:13307/shop' --format=json --sample-window=10ms >/tmp/dbprobe-mysql-bad.out 2>/tmp/dbprobe-mysql-bad.err; then echo 'bad MySQL credentials unexpectedly succeeded'; exit 1; fi; \
+	if printf '%s\n' 'wrong-secret' | $(BINARY) inspect '$(MYSQL84_TARGET)' --password-stdin --format=json --sample-window=10ms >/tmp/dbprobe-mysql-bad.out 2>/tmp/dbprobe-mysql-bad.err; then echo 'bad MySQL credentials unexpectedly succeeded'; exit 1; fi; \
 	if grep -q 'wrong-secret' /tmp/dbprobe-mysql-bad.err; then echo 'MySQL credential leaked in error output'; exit 1; fi
 
 test-mysql-down:
