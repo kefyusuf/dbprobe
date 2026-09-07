@@ -2,6 +2,8 @@ package collectors
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/kefyusuf/dbprobe/sdk/collector"
@@ -29,6 +31,28 @@ func TestPrimaryKeyCollectorEmitsStableTablePresence(t *testing.T) {
 	}
 }
 
+func TestPrimaryKeyCollectorReturnsBoundedEvidenceWithTruncationError(t *testing.T) {
+	rows := make([][]string, 0, 101)
+	for i := 0; i < 101; i++ {
+		rows = append(rows, []string{"shop", fmt.Sprintf("table_%03d", i), "0"})
+	}
+	q := &recordingQueryer{rows: rows}
+	collectors := NewSchemaRisk(q, "shop", 100)
+	got, err := collectors[0].Collect(context.Background(), collector.Request{})
+	if err == nil || !strings.Contains(err.Error(), "truncated after 100 tables") {
+		t.Fatalf("error=%v", err)
+	}
+	if len(got) != 100 {
+		t.Fatalf("observations=%d want=100", len(got))
+	}
+	if got[0].Object.ID != "shop.table_000" || got[99].Object.ID != "shop.table_099" {
+		t.Fatalf("first=%q last=%q", got[0].Object.ID, got[99].Object.ID)
+	}
+	if len(q.arguments) != 2 || q.arguments[1] != 101 {
+		t.Fatalf("query args=%#v want limit+1", q.arguments)
+	}
+}
+
 func TestAutoIncrementCollectorComputesTypeRangeUtilization(t *testing.T) {
 	q := &recordingQueryer{rows: [][]string{{"shop", "orders", "id", "int", "int unsigned", "4080218931"}}}
 	collectors := NewSchemaRisk(q, "shop", 100)
@@ -47,6 +71,25 @@ func TestAutoIncrementCollectorComputesTypeRangeUtilization(t *testing.T) {
 	}
 	if ratio < 0.94 || ratio > 0.96 {
 		t.Fatalf("ratio = %v; want about .95", ratio)
+	}
+}
+
+func TestAutoIncrementCollectorReturnsBoundedEvidenceWithTruncationError(t *testing.T) {
+	q := &recordingQueryer{rows: [][]string{
+		{"shop", "table_000", "id", "int", "int unsigned", "1"},
+		{"shop", "table_001", "id", "int", "int unsigned", "2"},
+		{"shop", "table_002", "id", "int", "int unsigned", "3"},
+	}}
+	collectors := NewSchemaRisk(q, "shop", 2)
+	got, err := collectors[1].Collect(context.Background(), collector.Request{})
+	if err == nil || !strings.Contains(err.Error(), "truncated after 2 columns") {
+		t.Fatalf("error=%v", err)
+	}
+	if len(got) != 6 {
+		t.Fatalf("observations=%d want=6", len(got))
+	}
+	if len(q.arguments) != 2 || q.arguments[1] != 3 {
+		t.Fatalf("query args=%#v want limit+1", q.arguments)
 	}
 }
 

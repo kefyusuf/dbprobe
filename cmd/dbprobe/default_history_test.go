@@ -11,6 +11,9 @@ import (
 	"testing"
 )
 
+const historyUnavailableReason = "local history unavailable; inspection was not persisted"
+const historyCloseUncertainReason = "local history close failed; snapshot durability could not be confirmed"
+
 func TestDefaultRootPersistsHistoryAcrossInvocations(t *testing.T) {
 	dataRoot := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", dataRoot)
@@ -76,7 +79,7 @@ func TestInspectContinuesWhenLocalHistoryCannotOpen(t *testing.T) {
 			if err := cmd.Execute(); err != nil {
 				t.Fatalf("inspect error=%v stderr=%q", err, stderr.String())
 			}
-			assertHistoryWarning(t, stdout.String(), stderr.String())
+			assertHistoryWarning(t, stdout.String(), stderr.String(), historyUnavailableReason)
 		})
 	}
 }
@@ -101,7 +104,7 @@ func TestInspectContinuesWhenLocalHistoryCannotClose(t *testing.T) {
 	if store.closed != 1 {
 		t.Fatalf("history close calls=%d want=1", store.closed)
 	}
-	assertHistoryWarning(t, stdout.String(), stderr.String())
+	assertHistoryWarning(t, stdout.String(), stderr.String(), historyCloseUncertainReason)
 }
 
 func TestDiffStillRequiresLocalHistory(t *testing.T) {
@@ -120,7 +123,7 @@ func TestDiffStillRequiresLocalHistory(t *testing.T) {
 	}
 }
 
-func assertHistoryWarning(t *testing.T, stdout, stderr string) {
+func assertHistoryWarning(t *testing.T, stdout, stderr, expectedReason string) {
 	t.Helper()
 	var report struct {
 		SchemaVersion string `json:"schema_version"`
@@ -135,8 +138,8 @@ func assertHistoryWarning(t *testing.T, stdout, stderr string) {
 	if report.SchemaVersion != "dbprobe.inspect/v1alpha1" {
 		t.Fatalf("schema_version=%q", report.SchemaVersion)
 	}
-	if len(report.Warnings) != 1 || report.Warnings[0].CollectorID != "history" || report.Warnings[0].Reason != "local history unavailable; inspection was not persisted" {
-		t.Fatalf("warnings=%#v", report.Warnings)
+	if len(report.Warnings) != 1 || report.Warnings[0].CollectorID != "history" || report.Warnings[0].Reason != expectedReason {
+		t.Fatalf("warnings=%#v want reason=%q", report.Warnings, expectedReason)
 	}
 	if strings.Contains(stdout, "sensitive") || strings.Contains(stderr, "sensitive") {
 		t.Fatalf("history error details leaked: stdout=%q stderr=%q", stdout, stderr)

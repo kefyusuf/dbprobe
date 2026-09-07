@@ -59,9 +59,8 @@ func (queryFullScanRule) Requires() []capability.Capability {
 	return []capability.Capability{"workload.query_summary"}
 }
 func (r queryFullScanRule) Evaluate(ctx finding.AnalysisContext) []finding.Finding {
-	grouped := groupDeltas(ctx.Deltas)
 	var out []finding.Finding
-	for _, g := range grouped {
+	for _, g := range sortedDeltaGroups(ctx.Deltas) {
 		calls, okCalls := g.values["core.query.calls"]
 		noIndex, okNoIndex := g.values["mysql.query.no_index_used"]
 		if !okCalls || !okNoIndex || calls < 10 || noIndex < 5 || noIndex/calls < 0.50 {
@@ -79,9 +78,8 @@ func (queryAmplificationRule) Requires() []capability.Capability {
 	return []capability.Capability{"workload.query_summary"}
 }
 func (r queryAmplificationRule) Evaluate(ctx finding.AnalysisContext) []finding.Finding {
-	grouped := groupDeltas(ctx.Deltas)
 	var out []finding.Finding
-	for _, g := range grouped {
+	for _, g := range sortedDeltaGroups(ctx.Deltas) {
 		examined, okExamined := g.values["mysql.query.rows_examined"]
 		sent, okSent := g.values["mysql.query.rows_sent"]
 		if !okExamined || !okSent || examined < 10000 {
@@ -176,9 +174,8 @@ func (bufferPoolHitRule) Requires() []capability.Capability {
 	return []capability.Capability{"storage.cache"}
 }
 func (r bufferPoolHitRule) Evaluate(ctx finding.AnalysisContext) []finding.Finding {
-	grouped := groupDeltas(ctx.Deltas)
 	var out []finding.Finding
-	for _, g := range grouped {
+	for _, g := range sortedDeltaGroups(ctx.Deltas) {
 		requests, okReq := g.values["mysql.innodb.buffer_pool.read_requests"]
 		reads, okReads := g.values["mysql.innodb.buffer_pool.reads"]
 		if !okReq || !okReads || requests < 1000 || requests <= 0 {
