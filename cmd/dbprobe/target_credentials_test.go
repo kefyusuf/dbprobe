@@ -31,6 +31,17 @@ func TestResolveCommandTargetRejectsPasswordInArgument(t *testing.T) {
 	}
 }
 
+func TestResolveCommandTargetRejectsEncodedPasswordDelimiterInUsername(t *testing.T) {
+	raw := "mysql://dbprobe%3Aargv-secret@127.0.0.1:3306/shop?tls=false"
+	_, err := resolveCommandTarget(raw, false, strings.NewReader(""))
+	if err == nil {
+		t.Fatal("expected delimiter-bearing MySQL username to be rejected")
+	}
+	if strings.Contains(err.Error(), "argv-secret") || strings.Contains(err.Error(), raw) {
+		t.Fatalf("username rejection leaked target: %q", err)
+	}
+}
+
 func TestResolveCommandTargetReadsMySQLPasswordFromStdin(t *testing.T) {
 	raw := "mysql://dbprobe@127.0.0.1:3306/shop?tls=false"
 	got, err := resolveCommandTarget(raw, true, strings.NewReader("stdin-secret\n"))
