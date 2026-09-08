@@ -68,6 +68,7 @@ func ParseConfig(raw string) (Config, error) {
 	if err := validateTLSMode(host, query); err != nil {
 		return Config{}, err
 	}
+	safeQuery.Set("tls", strings.ToLower(strings.TrimSpace(query.Get("tls"))))
 
 	addr := net.JoinHostPort(host, port)
 	base := mysqldriver.NewConfig()
