@@ -28,6 +28,19 @@ func TestParseConfigAcceptsMySQLURIWithoutLeakingPassword(t *testing.T) {
 	}
 }
 
+func TestParseConfigCanonicalizesAcceptedTLSModeBeforeDriverParsing(t *testing.T) {
+	cfg, err := ParseConfig("mysql://dbprobe:secret@db.example/shop?tls=%20TRUE%20")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(cfg.driverDSN, "tls=true") {
+		t.Fatalf("driver DSN does not contain canonical TLS mode: %q", cfg.driverDSN)
+	}
+	if strings.Contains(cfg.driverDSN, "%20") || strings.Contains(cfg.driverDSN, "TRUE") {
+		t.Fatalf("driver DSN retained non-canonical TLS input: %q", cfg.driverDSN)
+	}
+}
+
 func TestParseConfigUsesDefaultPort(t *testing.T) {
 	cfg, err := ParseConfig("mysql://dbprobe:secret@localhost/shop?tls=false")
 	if err != nil {
