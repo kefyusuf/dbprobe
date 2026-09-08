@@ -79,6 +79,19 @@ jobs:
           name: release-assets
           path: dist
 
+      - name: Verify release checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          shopt -s nullglob
+          checksum_files=(dbprobe_*_checksums.txt)
+          if [[ ${#checksum_files[@]} -ne 1 ]]; then
+            echo "expected exactly one release checksum manifest" >&2
+            exit 1
+          fi
+          sha256sum -c "${checksum_files[0]}"
+
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
