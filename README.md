@@ -118,13 +118,16 @@ Resource bounds are fail-closed: 1 MiB per metadata field, 4 MiB per canonical r
 Official releases contain CGo-free archives for Linux amd64, Windows amd64, macOS amd64, and macOS arm64, plus one SHA-256 checksum manifest.
 
 1. Download the archive matching your platform and `dbprobe_<version>_checksums.txt` from the same GitHub Release.
-2. Verify the archive before extracting it. On Linux, for example:
+2. Verify the **specific archive you selected** before extracting it. On Linux, for example, replace the version below with the release version you downloaded:
 
 ```bash
-sha256sum -c dbprobe_<version>_checksums.txt --ignore-missing
+archive='dbprobe_0.1.0_linux_amd64.tar.gz'
+manifest='dbprobe_0.1.0_checksums.txt'
+awk -v file="$archive" '$2 == file { count++; entry=$0 } END { if (count != 1) exit 1; print entry }' "$manifest" \
+  | sha256sum -c -
 ```
 
-On macOS, the equivalent check can be performed with `shasum -a 256 -c`. On Windows, compare `Get-FileHash -Algorithm SHA256` with the value in the checksum manifest.
+This fails if the selected archive does not have exactly one matching checksum entry. On macOS, use the same exact-entry filter and pipe it to `shasum -a 256 -c -`. On Windows, select the manifest entry for the exact downloaded archive and compare that hash with `Get-FileHash -Algorithm SHA256`; do not accept a checksum result for a different release asset.
 
 3. Extract the archive, place `dbprobe` (or `dbprobe.exe`) on your `PATH`, and verify the embedded release metadata:
 
