@@ -36,6 +36,9 @@ require_literal 'git merge-base --is-ancestor "$release_commit" origin/main'
 require_literal 'RELEASE_COMMIT=${release_commit}'
 require_literal 'git show -s --format=%ct "$RELEASE_COMMIT"'
 require_literal 'bash ./scripts/build-release.sh "$GITHUB_REF_NAME" "$RELEASE_COMMIT" "$build_date" "$PWD/dist"'
+require_literal 'checksum_files=(dbprobe_*_checksums.txt)'
+require_literal '[[ ${#checksum_files[@]} -ne 1 ]]'
+require_literal 'sha256sum -c "${checksum_files[0]}"'
 
 if grep -Eq '^[[:space:]]*(workflow_dispatch|pull_request):' "$workflow"; then
   fail 'release workflow must not be manually or PR triggered'
