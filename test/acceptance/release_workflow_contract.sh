@@ -28,12 +28,6 @@ require_literal "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e"
 require_literal "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
 require_literal "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"
 require_literal "go-version: '1.25.x'"
-require_literal 'CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch"'
-require_literal "build_archive linux amd64 '' tar"
-require_literal "build_archive windows amd64 '.exe' zip"
-require_literal "build_archive darwin amd64 '' tar"
-require_literal "build_archive darwin arm64 '' tar"
-require_literal "sha256sum"
 require_literal 'GH_REPO: ${{ github.repository }}'
 require_literal 'gh release create "$GITHUB_REF_NAME"'
 require_literal "--verify-tag"
@@ -41,12 +35,14 @@ require_literal 'release_commit="$(git rev-parse "${GITHUB_REF_NAME}^{commit}")"
 require_literal 'git merge-base --is-ancestor "$release_commit" origin/main'
 require_literal 'RELEASE_COMMIT=${release_commit}'
 require_literal 'git show -s --format=%ct "$RELEASE_COMMIT"'
-require_literal '-X main.commit=${RELEASE_COMMIT}'
-require_literal 'commit ${RELEASE_COMMIT}, built ${build_date}'
+require_literal 'bash ./scripts/build-release.sh "$GITHUB_REF_NAME" "$RELEASE_COMMIT" "$build_date" "$PWD/dist"'
 
 if grep -Eq '^[[:space:]]*(workflow_dispatch|pull_request):' "$workflow"; then
   fail 'release workflow must not be manually or PR triggered'
 fi
 if grep -Eq '(^|[[:space:]])git[[:space:]]+(tag|push)([[:space:]]|$)' "$workflow"; then
   fail 'release workflow must not create or push tags'
+fi
+if grep -Fq 'build_archive() {' "$workflow"; then
+  fail 'release workflow must delegate packaging to scripts/build-release.sh'
 fi
