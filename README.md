@@ -2,7 +2,7 @@
 
 Database intelligence runtime for deterministic, read-only diagnostics, temporal analysis, CI/agent surfaces, and database-specific intelligence behind modular adapters.
 
-> **v0.1 pre-release status:** the complete v0.1 candidate includes bounded collection, generic core findings, temporal intelligence, persistent SQLite history, the MySQL 8.0/8.4 adapter, structural schema fingerprinting, safe plan-only EXPLAIN, and the test-only MongoDB semantic probe. Promotion from `integration-v0.1` to `main` is controlled by dedicated PR #8 with main-targeted CI plus code/security review; full revision-bound acceptance evidence is maintained in that promotion PR and the repository documentation. This is not a tagged release.
+> **v0.1 pre-release status:** the complete v0.1 candidate is now promoted to `main` through PR #8. The promotion head `503949dda8283340dc06277038daba29e30105dc` merged as `b1a634ef27c30701f29d44c8a8d02ac0426c1647`, and the post-merge `main` CI run `34267752908` completed successfully. Full revision-bound acceptance and security evidence remains recorded in PR #8, PR #12, and the repository documentation. This is not a tagged release.
 
 ## Architecture
 
