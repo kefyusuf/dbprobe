@@ -4,9 +4,11 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 out_dir_rel=".release-test-output-${RANDOM}-${RANDOM}"
 out_dir="$repo_root/$out_dir_rel"
-extract_dir="$(mktemp -d)"
+extract_parent="$repo_root/.release test-${RANDOM}-${RANDOM}"
+extract_dir="$extract_parent/extract"
 validation_log="$(mktemp)"
-trap 'rm -rf "$out_dir" "$extract_dir"; rm -f "$validation_log"' EXIT
+mkdir -p "$extract_dir"
+trap 'rm -rf "$out_dir" "$extract_parent"; rm -f "$validation_log"' EXIT
 
 tag='v0.1.0'
 commit='0123456789abcdef0123456789abcdef01234567'
