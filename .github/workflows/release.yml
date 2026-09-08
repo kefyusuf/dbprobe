@@ -14,6 +14,8 @@ concurrency:
 
 jobs:
   build:
+    outputs:
+      release_commit: ${{ steps.validate.outputs.release_commit }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -30,6 +32,7 @@ jobs:
           cache: true
 
       - name: Validate release tag
+        id: validate
         shell: bash
         run: |
           set -euo pipefail
@@ -49,6 +52,7 @@ jobs:
             exit 1
           fi
           echo "RELEASE_COMMIT=${release_commit}" >> "$GITHUB_ENV"
+          echo "release_commit=${release_commit}" >> "$GITHUB_OUTPUT"
 
       - name: Verify tagged source
         run: make ci
@@ -100,9 +104,41 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          EXPECTED_RELEASE_COMMIT: ${{ needs.build.outputs.release_commit }}
         shell: bash
         run: |
           set -euo pipefail
+
+          resolve_remote_tag_commit() {
+            local object_type object_sha depth=0
+            IFS=$'\t' read -r object_type object_sha < <(
+              gh api "repos/${GH_REPO}/git/ref/tags/${GITHUB_REF_NAME}" \
+                --jq '[.object.type, .object.sha] | @tsv'
+            )
+            while [[ "$object_type" == "tag" ]]; do
+              depth=$((depth + 1))
+              if (( depth > 8 )); then
+                echo "release tag peel depth exceeded" >&2
+                return 1
+              fi
+              IFS=$'\t' read -r object_type object_sha < <(
+                gh api "repos/${GH_REPO}/git/tags/${object_sha}" \
+                  --jq '[.object.type, .object.sha] | @tsv'
+              )
+            done
+            if [[ "$object_type" != "commit" || ! "$object_sha" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "release tag does not resolve to a commit" >&2
+              return 1
+            fi
+            printf '%s\n' "$object_sha"
+          }
+
+          remote_commit="$(resolve_remote_tag_commit)"
+          if [[ "$remote_commit" != "$EXPECTED_RELEASE_COMMIT" ]]; then
+            echo "release tag moved after artifact build" >&2
+            exit 1
+          fi
+
           gh release create "$GITHUB_REF_NAME" dist/* \
             --verify-tag \
             --title "dbprobe $GITHUB_REF_NAME" \
