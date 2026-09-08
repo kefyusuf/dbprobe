@@ -43,7 +43,7 @@ jobs:
           fi
           git cat-file -e "${GITHUB_REF_NAME}^{commit}"
           release_commit="$(git rev-parse "${GITHUB_REF_NAME}^{commit}")"
-          git fetch --no-tags origin main
+          git fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
           if ! git merge-base --is-ancestor "$release_commit" origin/main; then
             echo "release tag must point to a commit in main history" >&2
             exit 1
