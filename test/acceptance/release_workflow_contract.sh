@@ -18,6 +18,7 @@ require_literal() {
 
 require_literal "tags:"
 require_literal "'v*'"
+require_literal 'if [[ ! "$GITHUB_REF_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then'
 require_literal "contents: read"
 require_literal "contents: write"
 require_literal "build:"
