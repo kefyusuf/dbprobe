@@ -9,9 +9,11 @@ func newRootCommand() *cobra.Command {
 func newRootCommandWithDependencies(deps commandDependencies) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:           "dbprobe",
+		Version:       versionInfo(),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
+	cmd.SetVersionTemplate("dbprobe version {{.Version}}\n")
 	cmd.AddCommand(newInspectCommandWithDependencies(deps), newExplainCommand())
 	if deps.openHistory != nil {
 		cmd.AddCommand(newDiffCommand(deps))

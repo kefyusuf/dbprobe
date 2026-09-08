@@ -1,4 +1,4 @@
-.PHONY: fmt fmt-check mod-check vet test race build cross-build test-sqlite-drivers cross-build-sqlite-drivers compare-sqlite-drivers smoke test-mysql test-mysql-down ci
+.PHONY: fmt fmt-check mod-check vet test race build cross-build test-version test-release-workflow test-release-packaging test-sqlite-drivers cross-build-sqlite-drivers compare-sqlite-drivers smoke test-mysql test-mysql-down ci
 
 BINARY ?= /tmp/dbprobe
 MYSQL_COMPOSE := docker compose -f test/integration/mysql/docker-compose.yml
@@ -34,6 +34,15 @@ cross-build:
 	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o /tmp/dbprobe-windows-amd64.exe ./cmd/dbprobe
 	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -o /tmp/dbprobe-darwin-amd64 ./cmd/dbprobe
 	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o /tmp/dbprobe-darwin-arm64 ./cmd/dbprobe
+
+test-version:
+	bash ./test/acceptance/version_contract.sh
+
+test-release-workflow:
+	bash ./test/acceptance/release_workflow_contract.sh
+
+test-release-packaging:
+	bash ./test/acceptance/release_packaging_contract.sh
 
 test-sqlite-drivers:
 	cd $(SQLITE_COMPARE_DIR) && go mod tidy
@@ -104,4 +113,4 @@ test-mysql:
 test-mysql-down:
 	$(MYSQL_COMPOSE) down -v
 
-ci: mod-check fmt-check vet test race build cross-build test-sqlite-drivers smoke
+ci: mod-check fmt-check vet test race build cross-build test-version test-release-workflow test-release-packaging test-sqlite-drivers smoke
