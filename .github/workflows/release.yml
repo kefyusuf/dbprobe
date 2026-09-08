@@ -37,6 +37,10 @@ jobs:
             echo "release tag must match vMAJOR.MINOR.PATCH" >&2
             exit 1
           fi
+          if ! [[ -s LICENSE ]]; then
+            echo "release requires a non-empty root LICENSE before publishing" >&2
+            exit 1
+          fi
           git cat-file -e "${GITHUB_REF_NAME}^{commit}"
           release_commit="$(git rev-parse "${GITHUB_REF_NAME}^{commit}")"
           git fetch --no-tags origin main
