@@ -34,6 +34,7 @@ require_literal "build_archive windows amd64 '.exe' zip"
 require_literal "build_archive darwin amd64 '' tar"
 require_literal "build_archive darwin arm64 '' tar"
 require_literal "sha256sum"
+require_literal 'GH_REPO: ${{ github.repository }}'
 require_literal 'gh release create "$GITHUB_REF_NAME"'
 require_literal "--verify-tag"
 require_literal 'git merge-base --is-ancestor "$GITHUB_SHA" origin/main'
