@@ -23,6 +23,14 @@ require_literal "contents: write"
 require_literal "build:"
 require_literal "publish:"
 require_literal "needs: build"
+require_literal 'release_commit: ${{ steps.validate.outputs.release_commit }}'
+require_literal "id: validate"
+require_literal 'release_commit=${release_commit}'
+require_literal 'EXPECTED_RELEASE_COMMIT: ${{ needs.build.outputs.release_commit }}'
+require_literal 'gh api "repos/${GH_REPO}/git/ref/tags/${GITHUB_REF_NAME}"'
+require_literal 'git/tags/${object_sha}'
+require_literal '[[ "$remote_commit" != "$EXPECTED_RELEASE_COMMIT" ]]'
+require_literal 'release tag moved after artifact build'
 require_literal "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
 require_literal "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e"
 require_literal "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
