@@ -9,7 +9,7 @@ func newRootCommand() *cobra.Command {
 func newRootCommandWithDependencies(deps commandDependencies) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:           "dbprobe",
-		Version:       "dev (commit unknown, built unknown)",
+		Version:       versionInfo(),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
