@@ -53,59 +53,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
           source_epoch="$(git show -s --format=%ct "$RELEASE_COMMIT")"
           build_date="$(date -u -d "@${source_epoch}" +'%Y-%m-%dT%H:%M:%SZ')"
-          ldflags="-s -w -X main.version=${GITHUB_REF_NAME} -X main.commit=${RELEASE_COMMIT} -X main.buildDate=${build_date}"
-
-          rm -rf dist .release-stage
-          mkdir -p dist .release-stage
-
-          build_archive() {
-            local goos="$1"
-            local goarch="$2"
-            local extension="$3"
-            local archive_kind="$4"
-            local name="dbprobe_${version}_${goos}_${goarch}"
-            local stage=".release-stage/${name}"
-
-            mkdir -p "$stage"
-            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build \
-              -trimpath \
-              -ldflags "$ldflags" \
-              -o "$stage/dbprobe${extension}" \
-              ./cmd/dbprobe
-
-            if [[ "$goos" == "linux" && "$goarch" == "amd64" ]]; then
-              expected="dbprobe version ${GITHUB_REF_NAME} (commit ${RELEASE_COMMIT}, built ${build_date})"
-              actual="$("$stage/dbprobe" --version)"
-              if [[ "$actual" != "$expected" ]]; then
-                printf 'release version mismatch\nexpected: %s\nactual:   %s\n' "$expected" "$actual" >&2
-                exit 1
-              fi
-            fi
-
-            if [[ "$archive_kind" == "zip" ]]; then
-              (cd .release-stage && zip -q -r "../dist/${name}.zip" "$name")
-            else
-              tar -C .release-stage -czf "dist/${name}.tar.gz" "$name"
-            fi
-            rm -rf "$stage"
-          }
-
-          build_archive linux amd64 '' tar
-          build_archive windows amd64 '.exe' zip
-          build_archive darwin amd64 '' tar
-          build_archive darwin arm64 '' tar
-
-          (
-            cd dist
-            sha256sum dbprobe_${version}_linux_amd64.tar.gz \
-              dbprobe_${version}_windows_amd64.zip \
-              dbprobe_${version}_darwin_amd64.tar.gz \
-              dbprobe_${version}_darwin_arm64.tar.gz \
-              > "dbprobe_${version}_checksums.txt"
-          )
+          bash ./scripts/build-release.sh "$GITHUB_REF_NAME" "$RELEASE_COMMIT" "$build_date" "$PWD/dist"
 
       - name: Upload release assets
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
