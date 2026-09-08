@@ -26,9 +26,10 @@ fi
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 version="${tag#v}"
+mkdir -p "$out_dir"
+out_dir="$(cd "$out_dir" && pwd -P)"
 stage_root="$(mktemp -d)"
 trap 'rm -rf "$stage_root"' EXIT
-mkdir -p "$out_dir"
 
 ldflags="-s -w -X main.version=${tag} -X main.commit=${commit} -X main.buildDate=${build_date}"
 
