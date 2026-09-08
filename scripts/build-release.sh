@@ -11,7 +11,7 @@ commit="$2"
 build_date="$3"
 out_dir="$4"
 
-if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+if [[ ! "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
   echo 'release tag must match vMAJOR.MINOR.PATCH' >&2
   exit 1
 fi
