@@ -22,6 +22,10 @@ func resolveCommandTarget(raw string, passwordStdin bool, in io.Reader) (string,
 		return raw, nil
 	}
 	if u.User != nil {
+		username := u.User.Username()
+		if strings.Contains(username, ":") {
+			return "", fmt.Errorf("MySQL username contains an unsupported delimiter")
+		}
 		if _, present := u.User.Password(); present {
 			return "", fmt.Errorf("MySQL password must not be included in target URL; use --password-stdin")
 		}
