@@ -1,0 +1,117 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.25.x'
+          cache: true
+
+      - name: Validate release tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "release tag must match vMAJOR.MINOR.PATCH" >&2
+            exit 1
+          fi
+          git cat-file -e "${GITHUB_REF_NAME}^{commit}"
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "release tag must point to a commit in main history" >&2
+            exit 1
+          fi
+
+      - name: Verify tagged source
+        run: make ci
+
+      - name: Build release archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          source_epoch="$(git show -s --format=%ct "$GITHUB_SHA")"
+          build_date="$(date -u -d "@${source_epoch}" +'%Y-%m-%dT%H:%M:%SZ')"
+          ldflags="-s -w -X main.version=${GITHUB_REF_NAME} -X main.commit=${GITHUB_SHA} -X main.buildDate=${build_date}"
+
+          rm -rf dist .release-stage
+          mkdir -p dist .release-stage
+
+          build_archive() {
+            local goos="$1"
+            local goarch="$2"
+            local extension="$3"
+            local archive_kind="$4"
+            local name="dbprobe_${version}_${goos}_${goarch}"
+            local stage=".release-stage/${name}"
+
+            mkdir -p "$stage"
+            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build \
+              -trimpath \
+              -ldflags "$ldflags" \
+              -o "$stage/dbprobe${extension}" \
+              ./cmd/dbprobe
+
+            if [[ "$goos" == "linux" && "$goarch" == "amd64" ]]; then
+              expected="dbprobe version ${GITHUB_REF_NAME} (commit ${GITHUB_SHA}, built ${build_date})"
+              actual="$("$stage/dbprobe" --version)"
+              if [[ "$actual" != "$expected" ]]; then
+                printf 'release version mismatch\nexpected: %s\nactual:   %s\n' "$expected" "$actual" >&2
+                exit 1
+              fi
+            fi
+
+            if [[ "$archive_kind" == "zip" ]]; then
+              (cd .release-stage && zip -q -r "../dist/${name}.zip" "$name")
+            else
+              tar -C .release-stage -czf "dist/${name}.tar.gz" "$name"
+            fi
+            rm -rf "$stage"
+          }
+
+          build_archive linux amd64 '' tar
+          build_archive windows amd64 '.exe' zip
+          build_archive darwin amd64 '' tar
+          build_archive darwin arm64 '' tar
+
+          (
+            cd dist
+            sha256sum dbprobe_${version}_linux_amd64.tar.gz \
+              dbprobe_${version}_windows_amd64.zip \
+              dbprobe_${version}_darwin_amd64.tar.gz \
+              dbprobe_${version}_darwin_arm64.tar.gz \
+              > "dbprobe_${version}_checksums.txt"
+          )
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --verify-tag \
+            --title "dbprobe $GITHUB_REF_NAME" \
+            --generate-notes
