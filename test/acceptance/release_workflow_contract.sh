@@ -34,6 +34,7 @@ require_literal "--verify-tag"
 require_literal '[[ -s LICENSE ]]'
 require_literal 'release requires a non-empty root LICENSE before publishing'
 require_literal 'release_commit="$(git rev-parse "${GITHUB_REF_NAME}^{commit}")"'
+require_literal "git fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'"
 require_literal 'git merge-base --is-ancestor "$release_commit" origin/main'
 require_literal 'RELEASE_COMMIT=${release_commit}'
 require_literal 'git show -s --format=%ct "$RELEASE_COMMIT"'
