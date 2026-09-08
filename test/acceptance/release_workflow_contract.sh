@@ -37,7 +37,12 @@ require_literal "sha256sum"
 require_literal 'GH_REPO: ${{ github.repository }}'
 require_literal 'gh release create "$GITHUB_REF_NAME"'
 require_literal "--verify-tag"
-require_literal 'git merge-base --is-ancestor "$GITHUB_SHA" origin/main'
+require_literal 'release_commit="$(git rev-parse "${GITHUB_REF_NAME}^{commit}")"'
+require_literal 'git merge-base --is-ancestor "$release_commit" origin/main'
+require_literal 'RELEASE_COMMIT=${release_commit}'
+require_literal 'git show -s --format=%ct "$RELEASE_COMMIT"'
+require_literal '-X main.commit=${RELEASE_COMMIT}'
+require_literal 'commit ${RELEASE_COMMIT}, built ${build_date}'
 
 if grep -Eq '^[[:space:]]*(workflow_dispatch|pull_request):' "$workflow"; then
   fail 'release workflow must not be manually or PR triggered'
