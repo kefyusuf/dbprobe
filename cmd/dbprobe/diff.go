@@ -10,6 +10,7 @@ import (
 
 func newDiffCommand(deps commandDependencies) *cobra.Command {
 	var format string
+	var passwordStdin bool
 
 	cmd := &cobra.Command{
 		Use:   "diff <target>",
@@ -25,12 +26,16 @@ func newDiffCommand(deps commandDependencies) *cobra.Command {
 			if deps.openHistory == nil {
 				return fmt.Errorf("persistent history is not configured")
 			}
+			target, err := resolveCommandTarget(args[0], passwordStdin, cmd.InOrStdin())
+			if err != nil {
+				return err
+			}
 
 			registry, err := newAdapterRegistry()
 			if err != nil {
 				return err
 			}
-			if err := validateTarget(registry, args[0]); err != nil {
+			if err := validateTarget(registry, target); err != nil {
 				return err
 			}
 			path, err := deps.resolveHistoryPath()
@@ -38,10 +43,11 @@ func newDiffCommand(deps commandDependencies) *cobra.Command {
 				return err
 			}
 			return withHistoryStore(cmd.Context(), path, deps.openHistory, func(store temporal.Store) error {
-				return runDiff(cmd.Context(), cmd.OutOrStdout(), args[0], format, registry, store)
+				return runDiff(cmd.Context(), cmd.OutOrStdout(), target, format, registry, store)
 			})
 		},
 	}
 	cmd.Flags().StringVar(&format, "format", "text", "output format: text or json")
+	cmd.Flags().BoolVar(&passwordStdin, "password-stdin", false, "read the MySQL password from stdin instead of target URL userinfo")
 	return cmd
 }

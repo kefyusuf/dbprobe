@@ -28,13 +28,65 @@ func TestParseConfigAcceptsMySQLURIWithoutLeakingPassword(t *testing.T) {
 	}
 }
 
-func TestParseConfigUsesDefaultPort(t *testing.T) {
-	cfg, err := ParseConfig("mysql://dbprobe:secret@db.example/shop")
+func TestParseConfigCanonicalizesAcceptedTLSModeBeforeDriverParsing(t *testing.T) {
+	cfg, err := ParseConfig("mysql://dbprobe:secret@db.example/shop?tls=%20TRUE%20")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Port != "3306" || cfg.DisplayName != "db.example:3306/shop" {
+	if !strings.Contains(cfg.driverDSN, "tls=true") {
+		t.Fatalf("driver DSN does not contain canonical TLS mode: %q", cfg.driverDSN)
+	}
+	if strings.Contains(cfg.driverDSN, "%20") || strings.Contains(cfg.driverDSN, "TRUE") {
+		t.Fatalf("driver DSN retained non-canonical TLS input: %q", cfg.driverDSN)
+	}
+}
+
+func TestParseConfigUsesDefaultPort(t *testing.T) {
+	cfg, err := ParseConfig("mysql://dbprobe:secret@localhost/shop?tls=false")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Port != "3306" || cfg.DisplayName != "localhost:3306/shop" {
 		t.Fatalf("unexpected defaults: host=%q port=%q display=%q", cfg.Host, cfg.Port, cfg.DisplayName)
+	}
+}
+
+func TestParseConfigRequiresExplicitVerifiedTLSForRemoteTargets(t *testing.T) {
+	for _, raw := range []string{
+		"mysql://user:secret@db.example/shop",
+		"mysql://user:secret@db.example/shop?tls=false",
+		"mysql://user:secret@db.example/shop?tls=skip-verify",
+		"mysql://user:secret@db.example/shop?tls=preferred",
+	} {
+		_, err := ParseConfig(raw)
+		if err == nil {
+			t.Fatalf("expected remote TLS policy rejection for %q", raw)
+		}
+		if strings.Contains(err.Error(), "secret") || strings.Contains(err.Error(), raw) {
+			t.Fatalf("TLS policy error leaks credentials: %q", err)
+		}
+	}
+}
+
+func TestParseConfigAllowsExplicitPlaintextOnlyForLoopback(t *testing.T) {
+	for _, raw := range []string{
+		"mysql://user:secret@localhost/shop?tls=false",
+		"mysql://user:secret@127.0.0.1/shop?tls=false",
+		"mysql://user:secret@[::1]/shop?tls=false",
+	} {
+		if _, err := ParseConfig(raw); err != nil {
+			t.Fatalf("loopback target %q rejected: %v", raw, err)
+		}
+	}
+}
+
+func TestParseConfigRejectsImplicitPlaintextEvenOnLoopback(t *testing.T) {
+	_, err := ParseConfig("mysql://user:secret@127.0.0.1/shop")
+	if err == nil {
+		t.Fatal("expected loopback target without explicit TLS mode to be rejected")
+	}
+	if strings.Contains(err.Error(), "secret") {
+		t.Fatalf("TLS policy error leaks credentials: %q", err)
 	}
 }
 
@@ -70,11 +122,11 @@ func TestParseConfigErrorDoesNotEchoCredentialBearingInput(t *testing.T) {
 }
 
 func TestSanitizeErrorRemovesRawTargetAndPassword(t *testing.T) {
-	cfg, err := ParseConfig("mysql://dbprobe:super-secret@db.example:3306/shop")
+	cfg, err := ParseConfig("mysql://dbprobe:super-secret@db.example:3306/shop?tls=true")
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = sanitizeError(errors.New("dial failed for mysql://dbprobe:super-secret@db.example:3306/shop: super-secret"), cfg)
+	err = sanitizeError(errors.New("dial failed for mysql://dbprobe:super-secret@db.example:3306/shop?tls=true: super-secret"), cfg)
 	if err == nil {
 		t.Fatal("expected sanitized error")
 	}

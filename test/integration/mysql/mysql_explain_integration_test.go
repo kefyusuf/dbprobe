@@ -20,8 +20,8 @@ func TestMySQLPlanExplainMatrixIsEstimatedAndSanitized(t *testing.T) {
 	}
 
 	cases := []targetCase{
-		{name: "mysql80", uri: envOr("DBPROBE_MYSQL80_DSN", "mysql://dbprobe:dbprobe-pass@127.0.0.1:13306/shop")},
-		{name: "mysql84", uri: envOr("DBPROBE_MYSQL84_DSN", "mysql://dbprobe:dbprobe-pass@127.0.0.1:13307/shop")},
+		{name: "mysql80", uri: envOr("DBPROBE_MYSQL80_DSN", "mysql://dbprobe:dbprobe-pass@127.0.0.1:13306/shop?tls=false")},
+		{name: "mysql84", uri: envOr("DBPROBE_MYSQL84_DSN", "mysql://dbprobe:dbprobe-pass@127.0.0.1:13307/shop?tls=false")},
 	}
 
 	for _, tc := range cases {

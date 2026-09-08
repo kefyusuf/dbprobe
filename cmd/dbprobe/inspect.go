@@ -29,6 +29,7 @@ func newInspectCommand() *cobra.Command {
 func newInspectCommandWithDependencies(deps commandDependencies) *cobra.Command {
 	var format string
 	var sampleWindow time.Duration
+	var passwordStdin bool
 
 	cmd := &cobra.Command{
 		Use:   "inspect <target>",
@@ -44,20 +45,24 @@ func newInspectCommandWithDependencies(deps commandDependencies) *cobra.Command 
 			if sampleWindow <= 0 {
 				return fmt.Errorf("sample window must be positive")
 			}
+			target, err := resolveCommandTarget(args[0], passwordStdin, cmd.InOrStdin())
+			if err != nil {
+				return err
+			}
 
 			registry, err := newAdapterRegistry()
 			if err != nil {
 				return err
 			}
-			if err := validateTarget(registry, args[0]); err != nil {
+			if err := validateTarget(registry, target); err != nil {
 				return err
 			}
 
 			runWithoutHistory := func() error {
-				return runInspect(cmd.Context(), cmd.OutOrStdout(), args[0], format, sampleWindow, registry, nil, historyUnavailableWarning)
+				return runInspect(cmd.Context(), cmd.OutOrStdout(), target, format, sampleWindow, registry, nil, historyUnavailableWarning)
 			}
 			if deps.openHistory == nil {
-				return runInspect(cmd.Context(), cmd.OutOrStdout(), args[0], format, sampleWindow, registry, nil)
+				return runInspect(cmd.Context(), cmd.OutOrStdout(), target, format, sampleWindow, registry, nil)
 			}
 			path, err := deps.resolveHistoryPath()
 			if err != nil {
@@ -67,11 +72,12 @@ func newInspectCommandWithDependencies(deps commandDependencies) *cobra.Command 
 			if err != nil {
 				return runWithoutHistory()
 			}
-			return runInspectWithOwnedHistory(cmd.Context(), cmd.OutOrStdout(), args[0], format, sampleWindow, registry, store)
+			return runInspectWithOwnedHistory(cmd.Context(), cmd.OutOrStdout(), target, format, sampleWindow, registry, store)
 		},
 	}
 	cmd.Flags().StringVar(&format, "format", "text", "output format: text or json")
 	cmd.Flags().DurationVar(&sampleWindow, "sample-window", time.Second, "counter sampling window")
+	cmd.Flags().BoolVar(&passwordStdin, "password-stdin", false, "read the MySQL password from stdin instead of target URL userinfo")
 	return cmd
 }
 

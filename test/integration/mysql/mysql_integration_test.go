@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/url"
 	"os"
@@ -34,8 +35,8 @@ func TestMySQLAdapterMatrix(t *testing.T) {
 	}
 
 	cases := []targetCase{
-		{name: "mysql80", uri: envOr("DBPROBE_MYSQL80_DSN", "mysql://dbprobe:dbprobe-pass@127.0.0.1:13306/shop")},
-		{name: "mysql84", uri: envOr("DBPROBE_MYSQL84_DSN", "mysql://dbprobe:dbprobe-pass@127.0.0.1:13307/shop")},
+		{name: "mysql80", uri: envOr("DBPROBE_MYSQL80_DSN", "mysql://dbprobe:dbprobe-pass@127.0.0.1:13306/shop?tls=false")},
+		{name: "mysql84", uri: envOr("DBPROBE_MYSQL84_DSN", "mysql://dbprobe:dbprobe-pass@127.0.0.1:13307/shop?tls=false")},
 	}
 
 	for _, tc := range cases {
@@ -153,14 +154,16 @@ func TestMySQLAdapterMatrix(t *testing.T) {
 	}
 }
 
-func openFixtureDB(t *testing.T, raw string) *sql.DB {
-	t.Helper()
+func fixtureDriverConfig(raw string) (*mysqldriver.Config, error) {
+	if _, err := mysqladapter.ParseConfig(raw); err != nil {
+		return nil, err
+	}
 	u, err := url.Parse(raw)
 	if err != nil {
-		t.Fatal(err)
+		return nil, fmt.Errorf("invalid fixture MySQL target")
 	}
 	if u.User == nil {
-		t.Fatal("fixture URI requires credentials")
+		return nil, fmt.Errorf("fixture URI requires credentials")
 	}
 	password, _ := u.User.Password()
 	port := u.Port()
@@ -173,9 +176,19 @@ func openFixtureDB(t *testing.T, raw string) *sql.DB {
 	cfg.Net = "tcp"
 	cfg.Addr = net.JoinHostPort(u.Hostname(), port)
 	cfg.DBName = strings.TrimPrefix(u.Path, "/")
+	cfg.TLSConfig = strings.ToLower(strings.TrimSpace(u.Query().Get("tls")))
 	cfg.Timeout = 5 * time.Second
 	cfg.ReadTimeout = 5 * time.Second
 	cfg.WriteTimeout = 5 * time.Second
+	return cfg, nil
+}
+
+func openFixtureDB(t *testing.T, raw string) *sql.DB {
+	t.Helper()
+	cfg, err := fixtureDriverConfig(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
 	connector, err := mysqldriver.NewConnector(cfg)
 	if err != nil {
 		t.Fatal(err)

@@ -20,6 +20,7 @@ func newExplainCommand() *cobra.Command {
 func newExplainCommandWithRegistry(factory registryFactory) *cobra.Command {
 	var statement string
 	var format string
+	var passwordStdin bool
 
 	cmd := &cobra.Command{
 		Use:   "explain <target>",
@@ -35,12 +36,16 @@ func newExplainCommandWithRegistry(factory registryFactory) *cobra.Command {
 			if factory == nil {
 				return fmt.Errorf("adapter registry factory is required")
 			}
+			target, err := resolveCommandTarget(args[0], passwordStdin, cmd.InOrStdin())
+			if err != nil {
+				return err
+			}
 
 			registry, err := factory()
 			if err != nil {
 				return err
 			}
-			report, err := appexplain.New(registry).Run(cmd.Context(), args[0], statement)
+			report, err := appexplain.New(registry).Run(cmd.Context(), target, statement)
 			if err != nil {
 				return err
 			}
@@ -55,5 +60,6 @@ func newExplainCommandWithRegistry(factory registryFactory) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&statement, "statement", "", "single SELECT statement to explain")
 	cmd.Flags().StringVar(&format, "format", "text", "output format: text or json")
+	cmd.Flags().BoolVar(&passwordStdin, "password-stdin", false, "read the MySQL password from stdin instead of target URL userinfo")
 	return cmd
 }

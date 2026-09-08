@@ -54,8 +54,9 @@ func ParseConfig(raw string) (Config, error) {
 		password, _ = u.User.Password()
 	}
 
+	query := u.Query()
 	safeQuery := url.Values{}
-	for key, values := range u.Query() {
+	for key, values := range query {
 		if _, allowed := allowedConnectionOptions[key]; !allowed {
 			return Config{}, fmt.Errorf("unsupported MySQL connection option")
 		}
@@ -64,6 +65,10 @@ func ParseConfig(raw string) (Config, error) {
 		}
 		safeQuery.Set(key, values[0])
 	}
+	if err := validateTLSMode(host, query); err != nil {
+		return Config{}, err
+	}
+	safeQuery.Set("tls", strings.ToLower(strings.TrimSpace(query.Get("tls"))))
 
 	addr := net.JoinHostPort(host, port)
 	base := mysqldriver.NewConfig()
@@ -101,6 +106,33 @@ func ParseConfig(raw string) (Config, error) {
 		rawTarget:    raw,
 		password:     password,
 	}, nil
+}
+
+func validateTLSMode(host string, query url.Values) error {
+	values, ok := query["tls"]
+	if !ok || len(values) != 1 || strings.TrimSpace(values[0]) == "" {
+		return fmt.Errorf("MySQL target requires an explicit tls mode")
+	}
+
+	switch strings.ToLower(strings.TrimSpace(values[0])) {
+	case "true":
+		return nil
+	case "false":
+		if isLoopbackHost(host) {
+			return nil
+		}
+		return fmt.Errorf("remote MySQL target requires tls=true")
+	default:
+		return fmt.Errorf("MySQL tls mode must be true, or false for loopback targets")
+	}
+}
+
+func isLoopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func sanitizeError(err error, cfg Config) error {
