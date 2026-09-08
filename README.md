@@ -2,7 +2,7 @@
 
 Database intelligence runtime for deterministic, read-only diagnostics, temporal analysis, CI/agent surfaces, and database-specific intelligence behind modular adapters.
 
-> **v0.1 pre-release status:** the complete v0.1 candidate is now promoted to `main` through PR #8. The promotion head `503949dda8283340dc06277038daba29e30105dc` merged as `b1a634ef27c30701f29d44c8a8d02ac0426c1647`, and the post-merge `main` CI run `34267752908` completed successfully. Full revision-bound acceptance and security evidence remains recorded in PR #8, PR #12, and the repository documentation. This is not a tagged release.
+> **v0.1 release status:** the verified v0.1 code line is on `main`. Official binaries are published only from explicit `vMAJOR.MINOR.PATCH` tags through the release workflow; the workflow never creates or pushes a tag itself. Untagged source builds report development version metadata. Full revision-bound acceptance and security evidence remains recorded in PR #8, PR #12, and the repository documentation.
 
 ## Architecture
 
@@ -113,6 +113,31 @@ Fingerprint v1 covers tables, columns, indexes, key/constraint relationships, CH
 
 Resource bounds are fail-closed: 1 MiB per metadata field, 4 MiB per canonical record, 100,000 rows per metadata group and 64 MiB total canonical metadata.
 
+## Installation
+
+Official releases contain CGo-free archives for Linux amd64, Windows amd64, macOS amd64, and macOS arm64, plus one SHA-256 checksum manifest.
+
+1. Download the archive matching your platform and `dbprobe_<version>_checksums.txt` from the same GitHub Release.
+2. Verify the archive before extracting it. On Linux, for example:
+
+```bash
+sha256sum -c dbprobe_<version>_checksums.txt --ignore-missing
+```
+
+On macOS, the equivalent check can be performed with `shasum -a 256 -c`. On Windows, compare `Get-FileHash -Algorithm SHA256` with the value in the checksum manifest.
+
+3. Extract the archive, place `dbprobe` (or `dbprobe.exe`) on your `PATH`, and verify the embedded release metadata:
+
+```bash
+dbprobe --version
+```
+
+Tagged release binaries report the release tag, exact commit, and UTC build timestamp. A normal source build without release linker flags reports:
+
+```text
+dbprobe version dev (commit unknown, built unknown)
+```
+
 ## CLI
 
 ### MySQL credentials and transport
@@ -221,11 +246,25 @@ go test ./...
 go test -race ./...
 CGo-free production build
 Linux/Windows/macOS cross-builds
+linker-injected CLI version metadata contract
+release-workflow safety/permission contract
 SQLite candidate persistence contracts
 benchmark input-validation regression
 persistent inspect/diff CLI smoke tests
 privacy and invalid-input smoke assertions
 ```
+
+### Release process
+
+Releases are an explicit maintainer boundary rather than a side effect of merging code:
+
+1. merge the intended release revision to `main` and require its normal CI to pass;
+2. create a strict SemVer tag such as `vMAJOR.MINOR.PATCH` that points to a commit in `main` history;
+3. push that tag explicitly;
+4. the tag-triggered release workflow reruns `make ci` with read-only repository permission, builds all four CGo-free archives, verifies embedded version metadata, and generates SHA-256 checksums;
+5. only after the build job succeeds are the artifacts handed to a separate publish job with `contents: write`, which creates the GitHub Release for the already-existing tag.
+
+The release workflow rejects non-canonical tags and tags outside `main` history. It does not create, move, or push Git refs.
 
 ### SQLite candidate contracts and comparison
 
