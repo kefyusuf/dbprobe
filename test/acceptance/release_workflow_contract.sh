@@ -31,6 +31,8 @@ require_literal "go-version: '1.25.x'"
 require_literal 'GH_REPO: ${{ github.repository }}'
 require_literal 'gh release create "$GITHUB_REF_NAME"'
 require_literal "--verify-tag"
+require_literal '[[ -s LICENSE ]]'
+require_literal 'release requires a non-empty root LICENSE before publishing'
 require_literal 'release_commit="$(git rev-parse "${GITHUB_REF_NAME}^{commit}")"'
 require_literal 'git merge-base --is-ancestor "$release_commit" origin/main'
 require_literal 'RELEASE_COMMIT=${release_commit}'
