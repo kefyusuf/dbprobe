@@ -2,7 +2,8 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-out_dir="$(mktemp -d)"
+out_dir_rel=".release-test-output-${RANDOM}-${RANDOM}"
+out_dir="$repo_root/$out_dir_rel"
 extract_dir="$(mktemp -d)"
 trap 'rm -rf "$out_dir" "$extract_dir"' EXIT
 
@@ -12,7 +13,7 @@ build_date='2026-09-08T20:10:00Z'
 version="${tag#v}"
 
 cd "$repo_root"
-bash ./scripts/build-release.sh "$tag" "$commit" "$build_date" "$out_dir"
+bash ./scripts/build-release.sh "$tag" "$commit" "$build_date" "$out_dir_rel"
 
 expected_files=(
   "dbprobe_${version}_linux_amd64.tar.gz"
