@@ -53,7 +53,7 @@ done
 )
 
 tar -C "$extract_dir" -xzf "$out_dir/dbprobe_${version}_linux_amd64.tar.gz"
-actual="$($extract_dir/dbprobe_${version}_linux_amd64/dbprobe --version)"
+actual="$("$extract_dir/dbprobe_${version}_linux_amd64/dbprobe" --version)"
 expected="dbprobe version ${tag} (commit ${commit}, built ${build_date})"
 
 if [[ "$actual" != "$expected" ]]; then
