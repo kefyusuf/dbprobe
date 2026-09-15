@@ -15,6 +15,19 @@ commit='0123456789abcdef0123456789abcdef01234567'
 build_date='2026-09-08T20:10:00Z'
 version="${tag#v}"
 
+module_legal_key() {
+  local module_path="$1"
+  local module_version="$2"
+  printf '%s\0%s' "$module_path" "$module_version" | od -An -v -tx1 | tr -d ' \n'
+}
+
+collision_a="$(module_legal_key 'example.com/a/b__c' 'v1.0.0')"
+collision_b="$(module_legal_key 'example.com/a__b/c' 'v1.0.0')"
+if [[ "$collision_a" == "$collision_b" ]]; then
+  echo 'module legal key encoding is not injective' >&2
+  exit 1
+fi
+
 cd "$repo_root"
 
 for invalid_tag in v01.2.3 v1.02.3 v1.2.03; do
@@ -77,9 +90,9 @@ for spec in "${archive_specs[@]}"; do
 
   while IFS=$'\t' read -r module_path module_version; do
     [[ -n "$module_path" ]] || continue
-    safe_module="${module_path//\//__}@${module_version}"
+    safe_module="hex-$(module_legal_key "$module_path" "$module_version")"
     if ! grep -Fq "$prefix/THIRD_PARTY_LICENSES/$safe_module/" <<< "$listing"; then
-      printf 'release archive %s is missing license material for %s %s\n' \
+      printf 'release archive %s is missing collision-free license material for %s %s\n' \
         "$archive" "$module_path" "$module_version" >&2
       exit 1
     fi
