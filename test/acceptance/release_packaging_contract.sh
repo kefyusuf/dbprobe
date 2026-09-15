@@ -52,11 +52,54 @@ done
   sha256sum -c "dbprobe_${version}_checksums.txt"
 )
 
+module_graph="$(go list -m -f '{{if not .Main}}{{.Path}}{{"\t"}}{{.Version}}{{end}}' all)"
+archive_specs=(
+  "dbprobe_${version}_linux_amd64.tar.gz|dbprobe_${version}_linux_amd64|tar"
+  "dbprobe_${version}_windows_amd64.zip|dbprobe_${version}_windows_amd64|zip"
+  "dbprobe_${version}_darwin_amd64.tar.gz|dbprobe_${version}_darwin_amd64|tar"
+  "dbprobe_${version}_darwin_arm64.tar.gz|dbprobe_${version}_darwin_arm64|tar"
+)
+
+for spec in "${archive_specs[@]}"; do
+  IFS='|' read -r archive prefix kind <<< "$spec"
+  if [[ "$kind" == "zip" ]]; then
+    listing="$(unzip -Z1 "$out_dir/$archive")"
+  else
+    listing="$(tar -tzf "$out_dir/$archive")"
+  fi
+
+  for legal_file in LICENSE NOTICE THIRD_PARTY_NOTICES.md; do
+    if ! grep -Fxq "$prefix/$legal_file" <<< "$listing"; then
+      printf 'release archive %s is missing %s\n' "$archive" "$legal_file" >&2
+      exit 1
+    fi
+  done
+
+  while IFS=$'\t' read -r module_path module_version; do
+    [[ -n "$module_path" ]] || continue
+    safe_module="${module_path//\//__}@${module_version}"
+    if ! grep -Fq "$prefix/THIRD_PARTY_LICENSES/$safe_module/" <<< "$listing"; then
+      printf 'release archive %s is missing license material for %s %s\n' \
+        "$archive" "$module_path" "$module_version" >&2
+      exit 1
+    fi
+  done <<< "$module_graph"
+done
+
 tar -C "$extract_dir" -xzf "$out_dir/dbprobe_${version}_linux_amd64.tar.gz"
-actual="$("$extract_dir/dbprobe_${version}_linux_amd64/dbprobe" --version)"
+prefix="dbprobe_${version}_linux_amd64"
+actual="$("$extract_dir/$prefix/dbprobe" --version)"
 expected="dbprobe version ${tag} (commit ${commit}, built ${build_date})"
 
 if [[ "$actual" != "$expected" ]]; then
   printf 'packaged version mismatch\nexpected: %s\nactual:   %s\n' "$expected" "$actual" >&2
   exit 1
 fi
+
+while IFS=$'\t' read -r module_path module_version; do
+  [[ -n "$module_path" ]] || continue
+  if ! grep -Fq "| \`$module_path\` | \`$module_version\` |" "$extract_dir/$prefix/THIRD_PARTY_NOTICES.md"; then
+    printf 'third-party notice is missing module %s %s\n' "$module_path" "$module_version" >&2
+    exit 1
+  fi
+done <<< "$module_graph"
