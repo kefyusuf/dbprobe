@@ -49,12 +49,27 @@ cp "$repo_root/LICENSE" "$repo_root/NOTICE" "$repo_root/THIRD_PARTY_NOTICES.md" 
   go list -m -f '{{if not .Main}}{{.Path}}{{"\t"}}{{.Version}}{{"\t"}}{{.Dir}}{{end}}' all
 ) > "$module_manifest"
 
+cat >> "$legal_root/THIRD_PARTY_NOTICES.md" <<'EOF'
+
+## Revision-resolved Go module inventory
+
+This section is generated for this release from the resolved `go list -m all`
+graph used by the packager. The upstream legal files bundled under
+`THIRD_PARTY_LICENSES/` are authoritative.
+
+| Module | Version |
+|---|---|
+EOF
+
 while IFS=$'\t' read -r module_path module_version module_dir; do
   [[ -n "$module_path" ]] || continue
   if [[ -z "$module_version" || -z "$module_dir" || ! -d "$module_dir" ]]; then
     printf 'cannot resolve legal material for module %s %s\n' "$module_path" "$module_version" >&2
     exit 1
   fi
+
+  printf '| `%s` | `%s` |\n' "$module_path" "$module_version" \
+    >> "$legal_root/THIRD_PARTY_NOTICES.md"
 
   safe_module="${module_path//\//__}@${module_version}"
   module_legal_dir="$legal_root/THIRD_PARTY_LICENSES/$safe_module"
