@@ -6,10 +6,10 @@ licenses and copyright notices.
 
 Official release archives include this notice plus the upstream root-level
 license, copying, notice, and copyright materials discovered for every
-resolved non-main Go module under:
+resolved non-main Go module under a collision-free directory key:
 
 ```text
-THIRD_PARTY_LICENSES/<module-path-with-slashes-replaced-by-__>@<version>/
+THIRD_PARTY_LICENSES/hex-<lowercase-hex(module-path UTF-8 bytes + NUL + version UTF-8 bytes)>/
 ```
 
 The release packager appends a **revision-resolved Go module inventory** to
@@ -45,5 +45,7 @@ upstream legal material under `THIRD_PARTY_LICENSES/`.
 
 The release acceptance contract compares the archived inventory with the
 current resolved Go module graph and requires legal material for every
-resolved non-main module. A module-graph change therefore cannot silently
-produce a release whose archived inventory omits that module.
+resolved non-main module. The collision-free directory key is derived from the
+module path and version together, so distinct module identities cannot alias
+the same legal-material directory. A module-graph change therefore cannot
+silently produce a release whose archived inventory omits that module.
