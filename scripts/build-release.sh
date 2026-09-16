@@ -31,6 +31,75 @@ out_dir="$(cd "$out_dir" && pwd -P)"
 stage_root="$(mktemp -d)"
 trap 'rm -rf "$stage_root"' EXIT
 
+for legal_file in LICENSE NOTICE THIRD_PARTY_NOTICES.md; do
+  if [[ ! -s "$repo_root/$legal_file" ]]; then
+    printf 'release requires non-empty %s\n' "$legal_file" >&2
+    exit 1
+  fi
+done
+
+legal_root="$stage_root/.legal"
+module_manifest="$stage_root/modules.tsv"
+mkdir -p "$legal_root/THIRD_PARTY_LICENSES"
+cp "$repo_root/LICENSE" "$repo_root/NOTICE" "$repo_root/THIRD_PARTY_NOTICES.md" "$legal_root/"
+
+(
+  cd "$repo_root"
+  go mod download all
+  go list -m -f '{{if not .Main}}{{.Path}}{{"\t"}}{{.Version}}{{"\t"}}{{.Dir}}{{end}}' all
+) > "$module_manifest"
+
+cat >> "$legal_root/THIRD_PARTY_NOTICES.md" <<'EOF'
+
+## Revision-resolved Go module inventory
+
+This section is generated for this release from the resolved `go list -m all`
+graph used by the packager. The upstream legal files bundled under
+`THIRD_PARTY_LICENSES/` are authoritative.
+
+| Module | Version |
+|---|---|
+EOF
+
+module_legal_key() {
+  local module_path="$1"
+  local module_version="$2"
+  printf '%s\0%s' "$module_path" "$module_version" | od -An -v -tx1 | tr -d ' \n'
+}
+
+while IFS=$'\t' read -r module_path module_version module_dir; do
+  [[ -n "$module_path" ]] || continue
+  if [[ -z "$module_version" || -z "$module_dir" || ! -d "$module_dir" ]]; then
+    printf 'cannot resolve legal material for module %s %s\n' "$module_path" "$module_version" >&2
+    exit 1
+  fi
+
+  printf '| `%s` | `%s` |\n' "$module_path" "$module_version" \
+    >> "$legal_root/THIRD_PARTY_NOTICES.md"
+
+  safe_module="hex-$(module_legal_key "$module_path" "$module_version")"
+  module_legal_dir="$legal_root/THIRD_PARTY_LICENSES/$safe_module"
+  mkdir -p "$module_legal_dir"
+  found=0
+
+  while IFS= read -r -d '' upstream_legal_file; do
+    cp "$upstream_legal_file" "$module_legal_dir/$(basename "$upstream_legal_file")"
+    found=1
+  done < <(
+    find "$module_dir" -maxdepth 1 -type f \
+      \( -iname 'LICENSE' -o -iname 'LICENSE.*' \
+         -o -iname 'COPYING' -o -iname 'COPYING.*' \
+         -o -iname 'NOTICE' -o -iname 'NOTICE.*' \
+         -o -iname 'COPYRIGHT' -o -iname 'COPYRIGHT.*' \) \
+      -print0
+  )
+
+  if [[ "$found" -ne 1 ]]; then
+    printf 'module %s %s has no root license/notice material\n' "$module_path" "$module_version" >&2
+    exit 1
+  fi
+done < "$module_manifest"
+
 ldflags="-s -w -X main.version=${tag} -X main.commit=${commit} -X main.buildDate=${build_date}"
 
 build_archive() {
@@ -50,6 +119,8 @@ build_archive() {
       -o "$stage/dbprobe${extension}" \
       ./cmd/dbprobe
   )
+
+  cp -R "$legal_root/." "$stage/"
 
   if [[ "$goos" == "linux" && "$goarch" == "amd64" ]]; then
     local expected="dbprobe version ${tag} (commit ${commit}, built ${build_date})"
