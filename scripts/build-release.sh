@@ -61,6 +61,12 @@ graph used by the packager. The upstream legal files bundled under
 |---|---|
 EOF
 
+module_legal_key() {
+  local module_path="$1"
+  local module_version="$2"
+  printf '%s\0%s' "$module_path" "$module_version" | od -An -v -tx1 | tr -d ' \n'
+}
+
 while IFS=$'\t' read -r module_path module_version module_dir; do
   [[ -n "$module_path" ]] || continue
   if [[ -z "$module_version" || -z "$module_dir" || ! -d "$module_dir" ]]; then
@@ -71,7 +77,7 @@ while IFS=$'\t' read -r module_path module_version module_dir; do
   printf '| `%s` | `%s` |\n' "$module_path" "$module_version" \
     >> "$legal_root/THIRD_PARTY_NOTICES.md"
 
-  safe_module="${module_path//\//__}@${module_version}"
+  safe_module="hex-$(module_legal_key "$module_path" "$module_version")"
   module_legal_dir="$legal_root/THIRD_PARTY_LICENSES/$safe_module"
   mkdir -p "$module_legal_dir"
   found=0
